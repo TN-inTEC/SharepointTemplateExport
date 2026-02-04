@@ -297,7 +297,8 @@ function Show-SameTenantWorkflow {
                 "Export source site to template",
                 "Inspect exported template",
                 "Import template to target site",
-                "View all commands (reference)"
+                "View all commands (reference)",
+                "Return to main menu"
             ) `
             -Prompt "Select step to execute"
         
@@ -320,25 +321,45 @@ function Show-SameTenantWorkflow {
                 $includeContent = Read-Host
                 $includeContentSwitch = if ($includeContent -eq 'N' -or $includeContent -eq 'n') { "" } else { "-IncludeContent" }
                 
-                Write-Host "`nExecuting export..." -ForegroundColor Cyan
+                Write-Host "`nRun in PREVIEW mode (no export, just show what would be included)? [Y/N] (default: N): " -ForegroundColor Yellow -NoNewline
+                $preview = Read-Host
+                $previewSwitch = if ($preview -eq 'Y' -or $preview -eq 'y') { "-Preview" } else { "" }
+                
+                if ($previewSwitch) {
+                    Write-Host "`nExecuting preview (no files will be created)..." -ForegroundColor Cyan
+                }
+                else {
+                    Write-Host "`nExecuting export..." -ForegroundColor Cyan
+                }
                 Write-Host "Command: " -ForegroundColor Gray -NoNewline
-                Write-Host ".\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl `"$sourceUrl`" -ConfigFile `"$ConfigFile`" $includeContentSwitch" -ForegroundColor White
+                Write-Host ".\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl `"$sourceUrl`" -ConfigFile `"$ConfigFile`" $includeContentSwitch $previewSwitch" -ForegroundColor White
                 
                 if (Test-Path ".\Export-SharePointSiteTemplate.ps1") {
                     try {
-                        if ($includeContentSwitch) {
+                        if ($previewSwitch -and $includeContentSwitch) {
+                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $ConfigFile -IncludeContent -Preview
+                        }
+                        elseif ($previewSwitch) {
+                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $ConfigFile -Preview
+                        }
+                        elseif ($includeContentSwitch) {
                             & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $ConfigFile -IncludeContent
                         }
                         else {
                             & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $ConfigFile
                         }
                         
-                        # Try to find the most recent template
-                        $templates = Get-ChildItem "C:\PSReports\SiteTemplates\*.pnp" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
-                        if ($templates) {
-                            $exportedTemplate = $templates[0].FullName
-                            Write-Host "`n✓ Export completed!" -ForegroundColor Green
-                            Write-Host "Template saved: $exportedTemplate" -ForegroundColor Cyan
+                        # Try to find the most recent template (only if not preview mode)
+                        if (-not $previewSwitch) {
+                            $templates = Get-ChildItem "C:\PSReports\SiteTemplates\*.pnp" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+                            if ($templates) {
+                                $exportedTemplate = $templates[0].FullName
+                                Write-Host "`n✓ Export completed!" -ForegroundColor Green
+                                Write-Host "Template saved: $exportedTemplate" -ForegroundColor Cyan
+                            }
+                        }
+                        else {
+                            Write-Host "`n✓ Preview completed (no files created)" -ForegroundColor Green
                         }
                     }
                     catch {
@@ -444,14 +465,45 @@ function Show-SameTenantWorkflow {
                     continue
                 }
                 
-                Write-Host "`nExecuting import..." -ForegroundColor Cyan
+                Write-Host "`nRun in INSPECT-ONLY mode (validation only, no import)? [Y/N] (default: N): " -ForegroundColor Yellow -NoNewline
+                $inspectOnly = Read-Host
+                $inspectSwitch = if ($inspectOnly -eq 'Y' -or $inspectOnly -eq 'y') { "-InspectOnly" } else { "" }
+                
+                if (-not $inspectSwitch) {
+                    Write-Host "`n⚠️  FINAL CONFIRMATION" -ForegroundColor Yellow
+                    Write-Host "About to import to: $targetUrl" -ForegroundColor White
+                    Write-Host "From template: $templatePath" -ForegroundColor White
+                    Write-Host "`nThis will modify the target site!" -ForegroundColor Yellow
+                    Write-Host "Proceed with import? [Y/N]: " -ForegroundColor Yellow -NoNewline
+                    $confirm = Read-Host
+                    
+                    if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+                        Write-Host "Import cancelled." -ForegroundColor Cyan
+                        Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                        continue
+                    }
+                }
+                
+                if ($inspectSwitch) {
+                    Write-Host "`nExecuting inspection (no changes will be made)..." -ForegroundColor Cyan
+                }
+                else {
+                    Write-Host "`nExecuting import..." -ForegroundColor Cyan
+                }
                 Write-Host "Command: " -ForegroundColor Gray -NoNewline
-                Write-Host ".\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl `"$targetUrl`" -TemplatePath `"$templatePath`" -ConfigFile `"$ConfigFile`"" -ForegroundColor White
+                Write-Host ".\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl `"$targetUrl`" -TemplatePath `"$templatePath`" -ConfigFile `"$ConfigFile`" $inspectSwitch" -ForegroundColor White
                 
                 if (Test-Path ".\Import-SharePointSiteTemplate.ps1") {
                     try {
-                        & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $targetUrl -TemplatePath $templatePath -ConfigFile $ConfigFile
-                        Write-Host "`n✓ Import completed!" -ForegroundColor Green
+                        if ($inspectSwitch) {
+                            & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $targetUrl -TemplatePath $templatePath -ConfigFile $ConfigFile -InspectOnly
+                            Write-Host "`n✓ Inspection completed (no changes made)" -ForegroundColor Green
+                        }
+                        else {
+                            & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $targetUrl -TemplatePath $templatePath -ConfigFile $ConfigFile
+                            Write-Host "`n✓ Import completed!" -ForegroundColor Green
+                        }
                     }
                     catch {
                         Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
@@ -493,6 +545,10 @@ function Show-SameTenantWorkflow {
                 
                 Write-Host "`nPress any key to continue..." -ForegroundColor Gray
                 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+            "5" {
+                # Return to main menu
+                $workflowRunning = $false
             }
             "0" {
                 $workflowRunning = $false
@@ -551,7 +607,8 @@ function Show-CrossTenantWorkflow {
                 "Edit user mapping CSV",
                 "Validate target users",
                 "Import to target tenant with user mapping",
-                "View all commands (reference)"
+                "View all commands (reference)",
+                "Return to main menu"
             ) `
             -Prompt "Select step to execute"
         
@@ -579,24 +636,45 @@ function Show-CrossTenantWorkflow {
                 $includeContent = Read-Host
                 $includeContentSwitch = if ($includeContent -eq 'N' -or $includeContent -eq 'n') { "" } else { "-IncludeContent" }
                 
-                Write-Host "`nExecuting export..." -ForegroundColor Cyan
+                Write-Host "`nRun in PREVIEW mode (no export, just show what would be included)? [Y/N] (default: N): " -ForegroundColor Yellow -NoNewline
+                $preview = Read-Host
+                $previewSwitch = if ($preview -eq 'Y' -or $preview -eq 'y') { "-Preview" } else { "" }
+                
+                if ($previewSwitch) {
+                    Write-Host "`nExecuting preview (no files will be created)..." -ForegroundColor Cyan
+                }
+                else {
+                    Write-Host "`nExecuting export..." -ForegroundColor Cyan
+                }
                 Write-Host "Command: " -ForegroundColor Gray -NoNewline
-                Write-Host ".\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl `"$sourceUrl`" -ConfigFile `"$SourceConfigFile`" $includeContentSwitch" -ForegroundColor White
+                Write-Host ".\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl `"$sourceUrl`" -ConfigFile `"$SourceConfigFile`" $includeContentSwitch $previewSwitch" -ForegroundColor White
                 
                 if (Test-Path ".\Export-SharePointSiteTemplate.ps1") {
                     try {
-                        if ($includeContentSwitch) {
+                        if ($previewSwitch -and $includeContentSwitch) {
+                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $SourceConfigFile -IncludeContent -Preview
+                        }
+                        elseif ($previewSwitch) {
+                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $SourceConfigFile -Preview
+                        }
+                        elseif ($includeContentSwitch) {
                             & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $SourceConfigFile -IncludeContent
                         }
                         else {
                             & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $SourceConfigFile
                         }
                         
-                        $templates = Get-ChildItem "C:\PSReports\SiteTemplates\*.pnp" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
-                        if ($templates) {
-                            $exportedTemplate = $templates[0].FullName
-                            Write-Host "`n✓ Export completed!" -ForegroundColor Green
-                            Write-Host "Template saved: $exportedTemplate" -ForegroundColor Cyan
+                        # Try to find the most recent template (only if not preview mode)
+                        if (-not $previewSwitch) {
+                            $templates = Get-ChildItem "C:\PSReports\SiteTemplates\*.pnp" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+                            if ($templates) {
+                                $exportedTemplate = $templates[0].FullName
+                                Write-Host "`n✓ Export completed!" -ForegroundColor Green
+                                Write-Host "Template saved: $exportedTemplate" -ForegroundColor Cyan
+                            }
+                        }
+                        else {
+                            Write-Host "`n✓ Preview completed (no files created)" -ForegroundColor Green
                         }
                     }
                     catch {
@@ -939,6 +1017,10 @@ function Show-CrossTenantWorkflow {
                 Write-Host "`nPress any key to continue..." -ForegroundColor Gray
                 $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
+            "7" {
+                # Return to main menu
+                $workflowRunning = $false
+            }
             "0" {
                 $workflowRunning = $false
             }
@@ -985,85 +1067,97 @@ function Show-MainMenu {
 }
 
 function Show-DocumentationMenu {
-    $choice = Show-Menu -Title "Documentation" `
-        -Options @(
-            "README.md - Main documentation and workflows",
-            "MANUAL-APP-REGISTRATION.md - Azure AD app setup guide",
-            "CONFIG-README.md - Configuration file guidance",
-            "USER-MAPPING-QUICK-REF.md - User mapping quick reference",
-            "DEVELOPER.md - Contribution guidelines"
-        ) `
-        -Prompt "Select document to view"
+    $menuRunning = $true
     
-    switch ($choice) {
-        "1" { if (Test-Path ".\README.md") { & notepad.exe ".\README.md" } }
-        "2" { if (Test-Path ".\MANUAL-APP-REGISTRATION.md") { & notepad.exe ".\MANUAL-APP-REGISTRATION.md" } }
-        "3" { if (Test-Path ".\CONFIG-README.md") { & notepad.exe ".\CONFIG-README.md" } }
-        "4" { if (Test-Path ".\USER-MAPPING-QUICK-REF.md") { & notepad.exe ".\USER-MAPPING-QUICK-REF.md" } }
-        "5" { if (Test-Path ".\DEVELOPER.md") { & notepad.exe ".\DEVELOPER.md" } }
-        "0" { return }
-        default { 
-            Write-Host "`nInvalid choice. Press any key to continue..." -ForegroundColor Red
-            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+    while ($menuRunning) {
+        $choice = Show-Menu -Title "Documentation" `
+            -Options @(
+                "README.md - Main documentation and workflows",
+                "MANUAL-APP-REGISTRATION.md - Azure AD app setup guide",
+                "CONFIG-README.md - Configuration file guidance",
+                "USER-MAPPING-QUICK-REF.md - User mapping quick reference",
+                "DEVELOPER.md - Contribution guidelines",
+                "Return to main menu"
+            ) `
+            -Prompt "Select document to view"
+        
+        switch ($choice) {
+            "1" { if (Test-Path ".\README.md") { & notepad.exe ".\README.md" } }
+            "2" { if (Test-Path ".\MANUAL-APP-REGISTRATION.md") { & notepad.exe ".\MANUAL-APP-REGISTRATION.md" } }
+            "3" { if (Test-Path ".\CONFIG-README.md") { & notepad.exe ".\CONFIG-README.md" } }
+            "4" { if (Test-Path ".\USER-MAPPING-QUICK-REF.md") { & notepad.exe ".\USER-MAPPING-QUICK-REF.md" } }
+            "5" { if (Test-Path ".\DEVELOPER.md") { & notepad.exe ".\DEVELOPER.md" } }
+            "6" { $menuRunning = $false }
+            "0" { $menuRunning = $false }
+            default { 
+                Write-Host "`nInvalid choice. Press any key to continue..." -ForegroundColor Red
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
         }
     }
 }
 
 function Show-TestConfigMenu {
-    $choice = Show-Menu -Title "Test Configuration Files" `
-        -Options @(
-            "Test single configuration file (same-tenant)",
-            "Test cross-tenant configurations (source + target)"
-        ) `
-        -Prompt "Select test mode"
+    $menuRunning = $true
     
-    switch ($choice) {
-        "1" {
-            Write-Host "`nEnter path to configuration file (or press Enter for 'app-config.json'): " -ForegroundColor Yellow -NoNewline
-            $configPath = Read-Host
-            if ([string]::IsNullOrWhiteSpace($configPath)) {
-                $configPath = "app-config.json"
+    while ($menuRunning) {
+        $choice = Show-Menu -Title "Test Configuration Files" `
+            -Options @(
+                "Test single configuration file (same-tenant)",
+                "Test cross-tenant configurations (source + target)",
+                "Return to main menu"
+            ) `
+            -Prompt "Select test mode"
+        
+        switch ($choice) {
+            "1" {
+                Write-Host "`nEnter path to configuration file (or press Enter for 'app-config.json'): " -ForegroundColor Yellow -NoNewline
+                $configPath = Read-Host
+                if ([string]::IsNullOrWhiteSpace($configPath)) {
+                    $configPath = "app-config.json"
+                }
+                
+                if (Test-Path ".\Test-Configuration.ps1") {
+                    Write-Host "`nRunning validation..." -ForegroundColor Cyan
+                    & ".\Test-Configuration.ps1" -ConfigFile $configPath
+                }
+                else {
+                    Write-Host "`nERROR: Test-Configuration.ps1 not found" -ForegroundColor Red
+                }
+                
+                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
-            
-            if (Test-Path ".\Test-Configuration.ps1") {
-                Write-Host "`nRunning validation..." -ForegroundColor Cyan
-                & ".\Test-Configuration.ps1" -ConfigFile $configPath
+            "2" {
+                Write-Host "`nEnter path to SOURCE configuration file (or press Enter for 'app-config-source.json'): " -ForegroundColor Yellow -NoNewline
+                $sourceConfig = Read-Host
+                if ([string]::IsNullOrWhiteSpace($sourceConfig)) {
+                    $sourceConfig = "app-config-source.json"
+                }
+                
+                Write-Host "Enter path to TARGET configuration file (or press Enter for 'app-config-target.json'): " -ForegroundColor Yellow -NoNewline
+                $targetConfig = Read-Host
+                if ([string]::IsNullOrWhiteSpace($targetConfig)) {
+                    $targetConfig = "app-config-target.json"
+                }
+                
+                if (Test-Path ".\Test-Configuration.ps1") {
+                    Write-Host "`nRunning cross-tenant validation..." -ForegroundColor Cyan
+                    & ".\Test-Configuration.ps1" -SourceConfigFile $sourceConfig -TargetConfigFile $targetConfig
+                }
+                else {
+                    Write-Host "`nERROR: Test-Configuration.ps1 not found" -ForegroundColor Red
+                }
+                
+                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
-            else {
-                Write-Host "`nERROR: Test-Configuration.ps1 not found" -ForegroundColor Red
+            "3" { $menuRunning = $false }
+            "0" { $menuRunning = $false }
+            default {
+                Write-Host "`nInvalid choice. Press any key to continue..." -ForegroundColor Red
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
-            
-            Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-        }
-        "2" {
-            Write-Host "`nEnter path to SOURCE configuration file (or press Enter for 'app-config-source.json'): " -ForegroundColor Yellow -NoNewline
-            $sourceConfig = Read-Host
-            if ([string]::IsNullOrWhiteSpace($sourceConfig)) {
-                $sourceConfig = "app-config-source.json"
-            }
-            
-            Write-Host "Enter path to TARGET configuration file (or press Enter for 'app-config-target.json'): " -ForegroundColor Yellow -NoNewline
-            $targetConfig = Read-Host
-            if ([string]::IsNullOrWhiteSpace($targetConfig)) {
-                $targetConfig = "app-config-target.json"
-            }
-            
-            if (Test-Path ".\Test-Configuration.ps1") {
-                Write-Host "`nRunning cross-tenant validation..." -ForegroundColor Cyan
-                & ".\Test-Configuration.ps1" -SourceConfigFile $sourceConfig -TargetConfigFile $targetConfig
-            }
-            else {
-                Write-Host "`nERROR: Test-Configuration.ps1 not found" -ForegroundColor Red
-            }
-            
-            Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-        }
-        "0" { return }
-        default {
-            Write-Host "`nInvalid choice. Press any key to continue..." -ForegroundColor Red
-            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
         }
     }
 }
