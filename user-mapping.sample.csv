@@ -1,0 +1,6 @@
+SourceUser,TargetUser,SourceDisplayName,TargetDisplayName,Notes
+john.smith@sourcetenant.onmicrosoft.com,john.smith@targettenant.onmicrosoft.com,John Smith,John Smith,Same user in different tenant
+sarah.jones@sourcetenant.onmicrosoft.com,sarah.jones@targettenant.onmicrosoft.com,Sarah Jones,Sarah Jones,Same user in different tenant
+old.admin@sourcetenant.onmicrosoft.com,new.admin@targettenant.onmicrosoft.com,Old Admin,New Admin,Admin role changed
+legacy.user@sourcetenant.onmicrosoft.com,,Legacy User,,User no longer exists - will be skipped
+contractor@external.com,contractor@external.com,External Contractor,External Contractor,External user - same email

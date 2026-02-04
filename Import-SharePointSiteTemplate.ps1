@@ -23,6 +23,15 @@
     Provision fields to the site collection.
 .PARAMETER IgnoreDuplicateDataRowErrors
     Continue importing even if there are duplicate or malformed data row errors. Recommended for cross-tenant migrations.
+
+.PARAMETER UserMappingFile
+    Path to CSV file containing user mappings for cross-tenant migrations.
+    Format: SourceUser,TargetUser,SourceDisplayName,TargetDisplayName,Notes
+    Generate template with: .\New-UserMappingTemplate.ps1
+
+.PARAMETER ValidateUsersOnly
+    Only validate that target users exist in the target tenant. Does not perform import.
+
 .PARAMETER ClientId
     Azure AD App Client ID for authentication. Uses PnP Management Shell if not specified.
 
@@ -43,9 +52,14 @@
     .\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl "https://contoso.sharepoint.com/sites/SMC" `
         -TemplatePath "C:\PSReports\SiteTemplates\SLM_Academy_Full.pnp" -ClearNavigation -WhatIf
 
+.EXAMPLE
+    .\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl "https://targettenant.sharepoint.com/sites/SMC" `
+        -TemplatePath "C:\PSReports\SiteTemplates\SLM_Academy_Full.pnp" `
+        -UserMappingFile "C:\PSReports\user-mapping.csv" -IgnoreDuplicateDataRowErrors
+
 .NOTES
     Author: IT Support
-    Date: February 3, 2026
+    Date: February 4, 2026
     Requires: PnP.PowerShell module
     
     IMPORTANT: 
@@ -83,6 +97,21 @@ param(
 
     [Parameter(Mandatory = $false)]
     [switch]$IgnoreDuplicateDataRowErrors,
+
+    [Parameter(Mandatory = $false)]
+    [ValidateScript({
+        if ($_ -and -not (Test-Path $_)) {
+            throw "User mapping file not found: $_"
+        }
+        if ($_ -and $_ -notmatch '\.(csv|txt)$') {
+            throw "User mapping file must be a CSV file"
+        }
+        return $true
+    })]
+    [string]$UserMappingFile,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ValidateUsersOnly,
 
     [Parameter(Mandatory = $false)]
     [string]$ClientId,
@@ -321,6 +350,257 @@ function Write-ProgressMessage {
     }
 }
 
+function Import-UserMapping {
+    param(
+        [string]$MappingFilePath
+    )
+    
+    Write-ProgressMessage "Loading user mapping file: $MappingFilePath" -Type "Info"
+    
+    try {
+        $mappingData = Import-Csv -Path $MappingFilePath -ErrorAction Stop
+        
+        # Validate CSV structure
+        $requiredColumns = @('SourceUser', 'TargetUser')
+        $columns = $mappingData[0].PSObject.Properties.Name
+        
+        foreach ($requiredCol in $requiredColumns) {
+            if ($requiredCol -notin $columns) {
+                throw "Missing required column: $requiredCol. CSV must contain: $($requiredColumns -join ', ')"
+            }
+        }
+        
+        # Build mapping hashtable
+        $mapping = @{}
+        $skippedUsers = @()
+        
+        foreach ($row in $mappingData) {
+            $sourceUser = $row.SourceUser.Trim()
+            $targetUser = $row.TargetUser.Trim()
+            
+            # Skip empty rows or rows without target users
+            if ([string]::IsNullOrWhiteSpace($sourceUser)) {
+                continue
+            }
+            
+            if ([string]::IsNullOrWhiteSpace($targetUser)) {
+                $skippedUsers += $sourceUser
+                Write-ProgressMessage "Skipping unmapped user: $sourceUser" -Type "Warning"
+                continue
+            }
+            
+            # Store mapping (case-insensitive)
+            $mapping[$sourceUser.ToLower()] = @{
+                TargetEmail = $targetUser
+                SourceDisplayName = if ($row.PSObject.Properties['SourceDisplayName']) { $row.SourceDisplayName } else { $sourceUser }
+                TargetDisplayName = if ($row.PSObject.Properties['TargetDisplayName']) { $row.TargetDisplayName } else { $targetUser }
+            }
+        }
+        
+        Write-ProgressMessage "Loaded $($mapping.Count) user mapping(s)" -Type "Success"
+        
+        if ($skippedUsers.Count -gt 0) {
+            Write-ProgressMessage "Skipped $($skippedUsers.Count) unmapped user(s)" -Type "Warning"
+        }
+        
+        return @{
+            Mapping = $mapping
+            SkippedUsers = $skippedUsers
+            TotalMappings = $mapping.Count
+        }
+    }
+    catch {
+        throw "Failed to load user mapping file: $($_.Exception.Message)"
+    }
+}
+
+function Test-TargetUsers {
+    param(
+        [hashtable]$UserMapping,
+        [string]$TargetSiteUrl
+    )
+    
+    Write-ProgressMessage "Validating target users exist in target tenant..." -Type "Info"
+    
+    $validUsers = @()
+    $invalidUsers = @()
+    
+    foreach ($sourceUser in $UserMapping.Keys) {
+        $targetEmail = $UserMapping[$sourceUser].TargetEmail
+        
+        try {
+            # Try to resolve user in target tenant
+            $user = Get-PnPUser | Where-Object { $_.Email -eq $targetEmail -or $_.LoginName -like "*$targetEmail*" }
+            
+            if ($null -eq $user) {
+                # Try to ensure user (adds them to the site if they exist in the tenant)
+                $user = New-PnPUser -LoginName $targetEmail -ErrorAction Stop
+            }
+            
+            if ($user) {
+                $validUsers += @{
+                    SourceEmail = $sourceUser
+                    TargetEmail = $targetEmail
+                    TargetLoginName = $user.LoginName
+                    TargetId = $user.Id
+                }
+                Write-ProgressMessage "✓ Valid: $sourceUser → $targetEmail" -Type "Success"
+            }
+            else {
+                $invalidUsers += @{
+                    SourceEmail = $sourceUser
+                    TargetEmail = $targetEmail
+                    Reason = "User not found in target tenant"
+                }
+                Write-ProgressMessage "✗ Invalid: $targetEmail not found" -Type "Error"
+            }
+        }
+        catch {
+            $invalidUsers += @{
+                SourceEmail = $sourceUser
+                TargetEmail = $targetEmail
+                Reason = $_.Exception.Message
+            }
+            Write-ProgressMessage "✗ Error validating $targetEmail : $($_.Exception.Message)" -Type "Error"
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Cyan
+    Write-Host "  User Validation Results" -ForegroundColor Cyan
+    Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Cyan
+    Write-Host "  Valid users:   $($validUsers.Count)" -ForegroundColor Green
+    Write-Host "  Invalid users: $($invalidUsers.Count)" -ForegroundColor $(if ($invalidUsers.Count -gt 0) { "Red" } else { "Gray" })
+    Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Cyan
+    Write-Host ""
+    
+    if ($invalidUsers.Count -gt 0) {
+        Write-Host "Invalid Users:" -ForegroundColor Red
+        foreach ($invalid in $invalidUsers) {
+            Write-Host "  • $($invalid.SourceEmail) → $($invalid.TargetEmail)" -ForegroundColor Yellow
+            Write-Host "    Reason: $($invalid.Reason)" -ForegroundColor Gray
+        }
+        Write-Host ""
+        
+        return @{
+            IsValid = $false
+            ValidUsers = $validUsers
+            InvalidUsers = $invalidUsers
+        }
+    }
+    
+    return @{
+        IsValid = $true
+        ValidUsers = $validUsers
+        InvalidUsers = $invalidUsers
+    }
+}
+
+function Apply-UserMappingToTemplate {
+    param(
+        [string]$TemplatePath,
+        [hashtable]$UserMapping
+    )
+    
+    Write-ProgressMessage "Applying user mappings to template..." -Type "Info"
+    
+    # PnP templates are ZIP files - extract, modify XML, repackage
+    $tempFolder = Join-Path $env:TEMP "PnPTemplateUserMapping_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+    New-Item -ItemType Directory -Path $tempFolder -Force | Out-Null
+    
+    $modifiedTemplatePath = $TemplatePath -replace '\.pnp$', '_UserMapped.pnp'
+    
+    try {
+        # Extract PnP template
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($TemplatePath, $tempFolder)
+        
+        # Find and modify XML manifest
+        $xmlFiles = Get-ChildItem -Path $tempFolder -Filter "*.xml" -Recurse
+        
+        foreach ($xmlFile in $xmlFiles) {
+            Write-ProgressMessage "Processing: $($xmlFile.Name)" -Type "Info"
+            
+            [xml]$templateXml = Get-Content $xmlFile.FullName -Raw
+            $modified = $false
+            
+            # Map users in Security section
+            if ($templateXml.Provisioning.Templates.ProvisioningTemplate.Security) {
+                $modified = $true
+                $security = $templateXml.Provisioning.Templates.ProvisioningTemplate.Security
+                
+                # Site Administrators
+                foreach ($admin in $security.AdditionalAdministrators.User) {
+                    if ($admin.Name -and $UserMapping.ContainsKey($admin.Name.ToLower())) {
+                        $newEmail = $UserMapping[$admin.Name.ToLower()].TargetEmail
+                        Write-ProgressMessage "  Mapping admin: $($admin.Name) → $newEmail" -Type "Info"
+                        $admin.Name = $newEmail
+                    }
+                }
+                
+                # Site Groups
+                foreach ($group in $security.SiteGroups.SiteGroup) {
+                    foreach ($member in $group.Members.User) {
+                        if ($member.Name -and $UserMapping.ContainsKey($member.Name.ToLower())) {
+                            $newEmail = $UserMapping[$member.Name.ToLower()].TargetEmail
+                            Write-ProgressMessage "  Mapping group member: $($member.Name) → $newEmail" -Type "Info"
+                            $member.Name = $newEmail
+                        }
+                    }
+                }
+            }
+            
+            # Map users in list items and files (Author, Editor, user fields)
+            if ($templateXml.Provisioning.Templates.ProvisioningTemplate.Lists) {
+                foreach ($list in $templateXml.Provisioning.Templates.ProvisioningTemplate.Lists.ListInstance) {
+                    foreach ($item in $list.DataRows.DataRow) {
+                        foreach ($value in $item.DataValue) {
+                            if ($value.'#text' -match '@') {
+                                # Extract all emails from the value
+                                $emails = [regex]::Matches($value.'#text', '([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,})')
+                                
+                                foreach ($emailMatch in $emails) {
+                                    $email = $emailMatch.Value
+                                    if ($UserMapping.ContainsKey($email.ToLower())) {
+                                        $newEmail = $UserMapping[$email.ToLower()].TargetEmail
+                                        $value.'#text' = $value.'#text' -replace [regex]::Escape($email), $newEmail
+                                        $modified = $true
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            # Save modified XML if changes were made
+            if ($modified) {
+                $templateXml.Save($xmlFile.FullName)
+                Write-ProgressMessage "  ✓ Modified and saved" -Type "Success"
+            }
+        }
+        
+        # Repackage as PnP file
+        Write-ProgressMessage "Creating modified template: $modifiedTemplatePath" -Type "Info"
+        
+        if (Test-Path $modifiedTemplatePath) {
+            Remove-Item $modifiedTemplatePath -Force
+        }
+        
+        [System.IO.Compression.ZipFile]::CreateFromDirectory($tempFolder, $modifiedTemplatePath)
+        
+        Write-ProgressMessage "User-mapped template created successfully" -Type "Success"
+        
+        return $modifiedTemplatePath
+    }
+    finally {
+        # Cleanup temp folder
+        if (Test-Path $tempFolder) {
+            Remove-Item $tempFolder -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Get-SiteInfo {
     try {
         $web = Get-PnPWeb -Includes Title, Description, ServerRelativeUrl, WebTemplate, Configuration -ErrorAction Stop
@@ -414,6 +694,28 @@ try {
     
     Write-ProgressMessage "Template file: $($templateFile.Name) ($templateSizeMB MB)" -Type "Info"
     
+    # Handle user mapping if provided
+    $userMappingData = $null
+    $templateToUse = $TemplatePath
+    
+    if ($UserMappingFile) {
+        Write-Host ""
+        Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Cyan
+        Write-Host "  User Mapping Enabled" -ForegroundColor Cyan
+        Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Cyan
+        Write-Host ""
+        
+        # Import user mapping
+        $userMappingData = Import-UserMapping -MappingFilePath $UserMappingFile
+        
+        if ($userMappingData.TotalMappings -eq 0) {
+            throw "No valid user mappings found in file: $UserMappingFile"
+        }
+        
+        Write-ProgressMessage "User mapping loaded: $($userMappingData.TotalMappings) mapping(s)" -Type "Success"
+        Write-Host ""
+    }
+    
     # Create log directory and file
     $logDirectory = Join-Path (Split-Path $TemplatePath) "ImportLogs"
     if (-not (Test-Path -Path $logDirectory)) {
@@ -441,6 +743,54 @@ try {
     Write-ProgressMessage "Connecting to target site: $TargetSiteUrl" -Type "Info"
     
     Connect-SharePoint -SiteUrl $TargetSiteUrl -ConfigFilePath $ConfigFile -ClientIdParam $ClientId -TenantParam $Tenant
+    
+    # If user mapping provided, validate target users
+    if ($userMappingData) {
+        Write-Host ""
+        Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Cyan
+        Write-Host "  Validating Target Users" -ForegroundColor Cyan
+        Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Cyan
+        Write-Host ""
+        
+        $validationResult = Test-TargetUsers -UserMapping $userMappingData.Mapping -TargetSiteUrl $TargetSiteUrl
+        
+        if (-not $validationResult.IsValid) {
+            Write-Host ""
+            Write-Host "❌ User validation failed!" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "Please update your user mapping file to fix invalid users, or remove them from the mapping." -ForegroundColor Yellow
+            Write-Host ""
+            
+            if ($ValidateUsersOnly) {
+                Write-ProgressMessage "Validation complete. Fix errors and re-run import." -Type "Warning"
+                return
+            }
+            
+            $continueAnyway = Read-Host "Continue with import anyway? (yes/no)"
+            if ($continueAnyway -ne 'yes') {
+                throw "Import aborted due to user validation errors"
+            }
+        }
+        else {
+            Write-ProgressMessage "All target users validated successfully" -Type "Success"
+            
+            if ($ValidateUsersOnly) {
+                Write-Host ""
+                Write-Host "✓ Validation complete - all users are valid!" -ForegroundColor Green
+                Write-Host ""
+                Write-Host "You can now run the import without -ValidateUsersOnly to proceed with the migration." -ForegroundColor Cyan
+                Write-Host ""
+                return
+            }
+        }
+        
+        # Apply user mapping to template
+        Write-Host ""
+        Write-ProgressMessage "Applying user mappings to template..." -Type "Info"
+        $templateToUse = Apply-UserMappingToTemplate -TemplatePath $TemplatePath -UserMapping $userMappingData.Mapping
+        Write-ProgressMessage "Modified template ready: $templateToUse" -Type "Success"
+        Write-Host ""
+    }
     
     # Check if target site exists
     Write-ProgressMessage "Checking if target site exists..." -Type "Info"
@@ -498,7 +848,7 @@ try {
     
     # Build parameters for template application
     $invokeParams = @{
-        Path = $TemplatePath
+        Path = $templateToUse  # Use the user-mapped template if it was created
     }
     
     if ($ClearNavigation) {
@@ -512,6 +862,11 @@ try {
     
     if ($ProvisionFieldsToSite) {
         $invokeParams['ProvisionFieldsStoSite'] = $true
+    }
+    
+    if ($IgnoreDuplicateDataRowErrors) {
+        $invokeParams['IgnoreDuplicateDataRowErrors'] = $true
+        Write-ProgressMessage "Will ignore duplicate data row errors" -Type "Info"
     }
     
     # Apply template
@@ -548,15 +903,28 @@ try {
         Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Green
         Write-Host ""
         
+        if ($userMappingData) {
+            Write-ProgressMessage "User mapping was applied to $($userMappingData.TotalMappings) user(s)" -Type "Info"
+        }
+        
         Write-ProgressMessage "Next steps:" -Type "Info"
         Write-Host "  1. Verify site structure and content" -ForegroundColor White
         Write-Host "  2. Test site functionality" -ForegroundColor White
         Write-Host "  3. Review permissions and security" -ForegroundColor White
-        Write-Host "  4. Notify users when ready for Go Live" -ForegroundColor White
+        if ($userMappingData) {
+            Write-Host "  4. Verify user permissions were mapped correctly" -ForegroundColor White
+            Write-Host "  5. Notify users when ready for Go Live" -ForegroundColor White
+        }
+        else {
+            Write-Host "  4. Notify users when ready for Go Live" -ForegroundColor White
+        }
         Write-Host ""
     }
     else {
         Write-ProgressMessage "WhatIf: Would apply template to $TargetSiteUrl" -Type "Info"
+        if ($userMappingData) {
+            Write-ProgressMessage "WhatIf: Would apply user mappings for $($userMappingData.TotalMappings) user(s)" -Type "Info"
+        }
     }
 }
 catch {
@@ -568,6 +936,12 @@ catch {
     throw
 }
 finally {
+    # Cleanup temp user-mapped template if it was created
+    if ($templateToUse -and $templateToUse -ne $TemplatePath -and (Test-Path $templateToUse)) {
+        Write-ProgressMessage "Cleaning up temporary user-mapped template" -Type "Info"
+        Remove-Item $templateToUse -Force -ErrorAction SilentlyContinue
+    }
+    
     Stop-Transcript
     Disconnect-PnPOnline -ErrorAction SilentlyContinue
 }

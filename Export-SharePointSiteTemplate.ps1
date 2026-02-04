@@ -6,6 +6,9 @@
     This script exports an entire SharePoint site including structure, configuration,
     pages, lists, libraries, and optionally content data. Designed for site migrations
     like SLM Academy to SMC SharePoint deployments.
+    
+    For cross-tenant migrations, use New-UserMappingTemplate.ps1 to generate a user
+    mapping file after exporting the template.
 
 .PARAMETER SourceSiteUrl
     The URL of the SharePoint site to export.
@@ -435,6 +438,27 @@ try {
     Write-Host "⚠ IMPORTANT for Import:" -ForegroundColor Yellow
     Write-Host "  Source site type: $($siteInfo.SiteType)" -ForegroundColor Yellow
     Write-Host "  Create target site with the SAME type to avoid errors!" -ForegroundColor Yellow
+    Write-Host ""
+    
+    Write-Host "📋 Next Steps:" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "  For SAME-TENANT migrations:" -ForegroundColor White
+    Write-Host "    .\Import-SharePointSiteTemplate.ps1 ``" -ForegroundColor Gray
+    Write-Host "      -TargetSiteUrl 'https://tenant.sharepoint.com/sites/target' ``" -ForegroundColor Gray
+    Write-Host "      -TemplatePath '$templatePath'" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "  For CROSS-TENANT migrations:" -ForegroundColor White
+    Write-Host "    1. Generate user mapping template:" -ForegroundColor Gray
+    Write-Host "       .\New-UserMappingTemplate.ps1 -TemplatePath '$templatePath'" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "    2. Edit user-mapping-template.csv with target tenant emails" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "    3. Import with user mapping:" -ForegroundColor Gray
+    Write-Host "       .\Import-SharePointSiteTemplate.ps1 ``" -ForegroundColor Gray
+    Write-Host "         -TargetSiteUrl 'https://targettenant.sharepoint.com/sites/target' ``" -ForegroundColor Gray
+    Write-Host "         -TemplatePath '$templatePath' ``" -ForegroundColor Gray
+    Write-Host "         -UserMappingFile 'user-mapping-template.csv' ``" -ForegroundColor Gray
+    Write-Host "         -IgnoreDuplicateDataRowErrors" -ForegroundColor Gray
     Write-Host ""
     
     Write-ProgressMessage "Template ready for import to target site" -Type "Success"

@@ -11,8 +11,39 @@ PowerShell scripts for exporting and importing complete SharePoint sites using P
 These scripts enable you to:
 - **Export** a complete SharePoint site including structure, content, pages, and lists
 - **Import** the template to another SharePoint site (same or different target tenant)
+- **Map users** during cross-tenant migrations (similar to BitTitan MigrationWiz and Sharegate)
 - Use **secure certificate-based authentication** (no interactive login required)
 - Maintain full audit trail of operations
+
+### ✨ Key Features
+
+#### 🔄 **Cross-Tenant User Mapping** (New!)
+- Automatically extract all users from source site or template
+- Generate user mapping CSV template
+- Validate target users before migration
+- Map site permissions, metadata, and people picker fields
+- Comprehensive audit trail
+
+#### 🔐 **Secure Authentication**
+- Certificate-based authentication (recommended)
+- Azure AD App Registration support
+- No passwords in scripts or config files
+- Multi-tenant support
+
+#### 📦 **Complete Site Migration**
+- Site structure (lists, libraries, content types)
+- Site pages and navigation
+- Document libraries with files
+- List items with all columns
+- Site permissions and groups
+- Custom fields and metadata
+
+#### 🛡️ **Enterprise-Ready**
+- Detailed logging and error handling
+- WhatIf mode for preview
+- Validation before import
+- Configurable content limits
+- Cross-tenant migration support
 
 ## Prerequisites
 
@@ -185,6 +216,216 @@ Disconnect-PnPOnline
 
 **Same Tenant**: If source and target are in the same tenant, use the same `app-config.json` for both operations.
 
+## 🔄 Cross-Tenant User Mapping
+
+When migrating SharePoint sites between different tenants, user identities need to be mapped from source to target tenant. This toolset includes comprehensive user mapping functionality similar to enterprise migration tools like BitTitan MigrationWiz and Sharegate.
+
+### Why User Mapping is Needed
+
+SharePoint stores user references in:
+- **Site permissions** (administrators, group members, role assignments)
+- **List/library permissions** (item-level security)
+- **Metadata fields** (Created By, Modified By, Author, Editor)
+- **People picker fields** (custom user columns in lists)
+- **Workflow assignments** and **task assignments**
+
+During cross-tenant migration, source tenant users (e.g., `user@source.onmicrosoft.com`) must be mapped to target tenant users (e.g., `user@target.onmicrosoft.com`).
+
+### User Mapping Workflow
+
+#### 1. Export the Site Template
+
+First, export the site from the source tenant:
+
+```powershell
+.\Export-SharePointSiteTemplate.ps1 `
+    -SourceSiteUrl "https://sourcetenant.sharepoint.com/sites/ProjectA" `
+    -ConfigFile "app-config-source.json" `
+    -IncludeContent
+```
+
+Output: `C:\PSReports\SiteTemplates\SiteTemplate_20260204_143022.pnp`
+
+#### 2. Generate User Mapping Template
+
+The `New-UserMappingTemplate.ps1` script extracts all unique users from the exported template and creates a CSV mapping file:
+
+```powershell
+.\New-UserMappingTemplate.ps1 `
+    -TemplatePath "C:\PSReports\SiteTemplates\SiteTemplate_20260204_143022.pnp"
+```
+
+This creates `user-mapping-template.csv` with the following structure:
+
+```csv
+SourceUser,TargetUser,SourceDisplayName,TargetDisplayName,Notes
+john.smith@sourcetenant.com,john.smith@sourcetenant.com,John Smith,John Smith,Found in: Site User
+sarah.jones@sourcetenant.com,sarah.jones@sourcetenant.com,Sarah Jones,Sarah Jones,Found in: Group: Members
+admin@sourcetenant.com,admin@sourcetenant.com,Admin User,Admin User,Found in: Site Administrator
+```
+
+**Alternative**: Scan a live source site instead of a template file:
+
+```powershell
+.\New-UserMappingTemplate.ps1 `
+    -SiteUrl "https://sourcetenant.sharepoint.com/sites/ProjectA" `
+    -ConfigFile "app-config-source.json" `
+    -OutputPath "C:\Migrations\users.csv"
+```
+
+#### 3. Edit the User Mapping File
+
+Open `user-mapping-template.csv` and update the **TargetUser** column with target tenant email addresses:
+
+```csv
+SourceUser,TargetUser,SourceDisplayName,TargetDisplayName,Notes
+john.smith@sourcetenant.com,john.smith@targettenant.com,John Smith,John Smith,Same person different tenant
+sarah.jones@sourcetenant.com,sarah.j@targettenant.com,Sarah Jones,Sarah Jones,Email changed in target
+admin@sourcetenant.com,it.admin@targettenant.com,Admin User,IT Admin,Role reassigned
+old.user@sourcetenant.com,,Old User,,No longer with company - skip
+```
+
+**Important**:
+- Leave **TargetUser** empty to skip mapping (user will be unmapped)
+- Update **TargetDisplayName** if names differ in target tenant
+- All target users must exist in the target tenant before import
+
+#### 4. Validate Target Users (Optional but Recommended)
+
+Before performing the full import, validate that all target users exist:
+
+```powershell
+.\Import-SharePointSiteTemplate.ps1 `
+    -TargetSiteUrl "https://targettenant.sharepoint.com/sites/ProjectA" `
+    -TemplatePath "C:\PSReports\SiteTemplates\SiteTemplate_20260204_143022.pnp" `
+    -UserMappingFile "user-mapping-template.csv" `
+    -ConfigFile "app-config-target.json" `
+    -ValidateUsersOnly
+```
+
+This will:
+- ✅ Check if each target user exists in the target tenant
+- ✅ Attempt to add users to the site (if they exist in the tenant)
+- ❌ Report any invalid users
+- ⏸️ Stop before performing the actual import
+
+Example output:
+```
+═══════════════════════════════════════════════════════
+  User Validation Results
+═══════════════════════════════════════════════════════
+  Valid users:   15
+  Invalid users: 2
+═══════════════════════════════════════════════════════
+
+Invalid Users:
+  • old.user@sourcetenant.com → old.user@targettenant.com
+    Reason: User not found in target tenant
+  • external@partner.com → external@partner.com
+    Reason: User not found in target tenant
+```
+
+Fix any errors in your CSV file and re-validate until all users pass.
+
+#### 5. Import with User Mapping
+
+Once validation passes, perform the import with user mapping:
+
+```powershell
+.\Import-SharePointSiteTemplate.ps1 `
+    -TargetSiteUrl "https://targettenant.sharepoint.com/sites/ProjectA" `
+    -TemplatePath "C:\PSReports\SiteTemplates\SiteTemplate_20260204_143022.pnp" `
+    -UserMappingFile "user-mapping-template.csv" `
+    -ConfigFile "app-config-target.json" `
+    -IgnoreDuplicateDataRowErrors
+```
+
+**What happens during import:**
+1. User mapping CSV is loaded and validated
+2. Target users are validated in the target tenant
+3. A temporary modified template is created with mapped users
+4. The modified template is applied to the target site
+5. All user references are automatically mapped:
+   - Site permissions → mapped to target users
+   - List item metadata (Created By, Modified By) → mapped
+   - People picker fields → mapped
+   - User fields in list items → mapped
+6. Temporary files are cleaned up
+
+**Parameters explained:**
+- `-UserMappingFile`: Path to your user mapping CSV
+- `-IgnoreDuplicateDataRowErrors`: Recommended for cross-tenant migrations to skip duplicate content errors
+- `-ValidateUsersOnly`: Pre-flight validation only, no import
+
+### User Mapping Features
+
+✅ **Comprehensive Mapping**
+- Maps users in site security (administrators, groups, roles)
+- Maps users in list/library permissions
+- Maps metadata fields (Author, Editor, Created By, Modified By)
+- Maps people picker columns and custom user fields
+
+✅ **Pre-Flight Validation**
+- Validates target users exist before import
+- Reports missing or invalid users
+- Prevents failed imports due to user issues
+
+✅ **Flexible Mapping**
+- CSV-based for easy editing and version control
+- Supports one-to-one mapping (same user in different tenant)
+- Supports role changes (old admin → new admin)
+- Skip unmapped users (leave TargetUser empty)
+
+✅ **Audit Trail**
+- All mappings logged during import
+- Source and target users tracked
+- Import logs include user mapping details
+
+### User Mapping CSV Format
+
+The CSV file must have the following columns:
+
+| Column | Required | Description |
+|--------|----------|-------------|
+| `SourceUser` | ✅ Yes | Source tenant user email (case-insensitive) |
+| `TargetUser` | ⚠️ Optional | Target tenant user email. Leave empty to skip mapping. |
+| `SourceDisplayName` | ℹ️ Info | Display name in source tenant (for reference) |
+| `TargetDisplayName` | ℹ️ Info | Display name in target tenant (for reference) |
+| `Notes` | ℹ️ Info | Any notes (e.g., "Same person", "Role changed") |
+
+**Example** (`user-mapping.sample.csv` provided):
+```csv
+SourceUser,TargetUser,SourceDisplayName,TargetDisplayName,Notes
+john.smith@source.onmicrosoft.com,john.smith@target.onmicrosoft.com,John Smith,John Smith,Same user different tenant
+sarah.jones@source.onmicrosoft.com,sarah.jones@target.onmicrosoft.com,Sarah Jones,Sarah Jones,Same user different tenant
+old.admin@source.onmicrosoft.com,new.admin@target.onmicrosoft.com,Old Admin,New Admin,Admin role changed
+legacy.user@source.onmicrosoft.com,,Legacy User,,User no longer exists - will be skipped
+```
+
+### Troubleshooting User Mapping
+
+**Issue**: "User not found in target tenant"
+- **Solution**: Ensure the user exists in the target tenant (check Azure AD)
+- **Solution**: User may need to be licensed in the target tenant
+- **Solution**: External users may need to be invited as guests first
+
+**Issue**: "User validation failed"
+- **Solution**: Run with `-ValidateUsersOnly` to see specific errors
+- **Solution**: Update CSV to fix invalid mappings or remove them
+- **Solution**: Use `-IgnoreDuplicateDataRowErrors` to continue despite some errors
+
+**Issue**: "Some permissions missing after import"
+- **Solution**: Verify all users in mapping file
+- **Solution**: Some system accounts cannot be mapped (e.g., SharePoint App)
+- **Solution**: Manually review and assign permissions post-migration
+
+**Issue**: "Mapping not applied to some content"
+- **Solution**: PnP template limitations may skip some user references
+- **Solution**: Use `-IncludeContent` during export to capture list items
+- **Solution**: Re-run mapping after initial import if needed
+
+**Same Tenant**: If source and target are in the same tenant, use the same `app-config.json` for both operations.
+
 ## Script Reference
 
 ### Export-SharePointSiteTemplate.ps1
@@ -228,6 +469,9 @@ Imports a PnP template to a SharePoint site.
 **Parameters**:
 - `-TargetSiteUrl` (Required): URL of the destination site (must already exist)
 - `-TemplatePath` (Required): Path to the .pnp template file
+- `-UserMappingFile` (Optional): Path to user mapping CSV for cross-tenant migrations
+- `-ValidateUsersOnly` (Switch): Only validate target users, don't perform import
+- `-IgnoreDuplicateDataRowErrors` (Switch): Continue on duplicate/malformed data errors (recommended for cross-tenant)
 - `-ClearNavigation` (Switch): Clear existing navigation before applying
 - `-OverwriteSystemPropertyBagValues` (Switch): Overwrite system properties
 - `-ProvisionFieldsToSite` (Switch): Provision fields to site collection
@@ -258,6 +502,54 @@ Imports a PnP template to a SharePoint site.
     -TargetSiteUrl "https://targettenant.sharepoint.com/sites/Site" `
     -TemplatePath "C:\PSReports\SiteTemplates\Template.pnp" `
     -ConfigFile "app-config-target.json"
+
+# Cross-tenant with user mapping
+.\Import-SharePointSiteTemplate.ps1 `
+    -TargetSiteUrl "https://targettenant.sharepoint.com/sites/Site" `
+    -TemplatePath "C:\PSReports\SiteTemplates\Template.pnp" `
+    -UserMappingFile "user-mapping.csv" `
+    -ConfigFile "app-config-target.json" `
+    -IgnoreDuplicateDataRowErrors
+
+# Validate users before import
+.\Import-SharePointSiteTemplate.ps1 `
+    -TargetSiteUrl "https://targettenant.sharepoint.com/sites/Site" `
+    -TemplatePath "C:\PSReports\SiteTemplates\Template.pnp" `
+    -UserMappingFile "user-mapping.csv" `
+    -ValidateUsersOnly
+```
+
+### New-UserMappingTemplate.ps1
+
+Generates a user mapping template CSV from a SharePoint site or template file.
+
+**Parameters**:
+- `-TemplatePath` (Required for template mode): Path to exported .pnp template file
+- `-SiteUrl` (Required for live site mode): URL of SharePoint site to scan
+- `-OutputPath` (Optional): Output CSV path (default: `user-mapping-template.csv`)
+- `-IncludeSystemAccounts` (Switch): Include system accounts like SharePoint App
+- `-ConfigFile` (Optional): Config file for site authentication (when using `-SiteUrl`)
+
+**Examples**:
+```powershell
+# Generate from exported template
+.\New-UserMappingTemplate.ps1 `
+    -TemplatePath "C:\PSReports\SiteTemplates\Template.pnp"
+
+# Generate from live site
+.\New-UserMappingTemplate.ps1 `
+    -SiteUrl "https://contoso.sharepoint.com/sites/ProjectA" `
+    -ConfigFile "app-config-source.json"
+
+# Custom output path
+.\New-UserMappingTemplate.ps1 `
+    -TemplatePath "Template.pnp" `
+    -OutputPath "C:\Migrations\ProjectA\users.csv"
+
+# Include system accounts
+.\New-UserMappingTemplate.ps1 `
+    -TemplatePath "Template.pnp" `
+    -IncludeSystemAccounts
 ```
 
 ## Authentication Flow
@@ -287,16 +579,27 @@ The scripts use **certificate-based authentication** with the following priority
 
 ```
 SharepointTemplateExport/
-├── Export-SharePointSiteTemplate.ps1     # Export site to PnP template
-├── Import-SharePointSiteTemplate.ps1     # Import PnP template to site
-├── Remove-DeletedSharePointSite.ps1      # Cleanup deleted sites from recycle bin
-├── Test-Configuration.ps1                # Validate configuration files
-├── Register-SharePointApp.ps1            # App registration helper (optional)
-├── app-config.json                       # Authentication configuration (git-ignored)
-├── app-config.sample.json                # Configuration template
-├── app-config-source.example.json        # Example for source tenant
-├── app-config-target.example.json        # Example for target tenant
-├── CONFIG-README.md                      # Configuration setup guide
+├── Core Scripts
+│   ├── Export-SharePointSiteTemplate.ps1     # Export site to PnP template
+│   ├── Import-SharePointSiteTemplate.ps1     # Import PnP template to site
+│   └── New-UserMappingTemplate.ps1           # Generate user mapping CSV (NEW)
+├── Utility Scripts
+│   ├── Remove-DeletedSharePointSite.ps1      # Cleanup deleted sites from recycle bin
+│   ├── Test-Configuration.ps1                # Validate configuration files
+│   └── Register-SharePointApp.ps1            # App registration helper (optional)
+├── Configuration Files
+│   ├── app-config.json                       # Authentication config (git-ignored)
+│   ├── app-config.sample.json                # Configuration template
+│   ├── app-config-source.example.json        # Example for source tenant
+│   ├── app-config-target.example.json        # Example for target tenant
+│   └── user-mapping.sample.csv               # User mapping CSV template (NEW)
+├── Documentation
+│   ├── README.md                             # This file - main documentation
+│   ├── CONFIG-README.md                      # Configuration setup guide
+│   ├── MANUAL-APP-REGISTRATION.md            # Detailed app registration guide
+│   ├── USER-MAPPING-QUICK-REF.md             # Quick reference card (NEW)
+│   └── USER-MAPPING-TEST-GUIDE.md            # Testing scenarios (NEW)
+└── LICENSE                                   # MIT License
 ├── MANUAL-APP-REGISTRATION.md            # Detailed setup guide
 └── Configuration Issues
 
