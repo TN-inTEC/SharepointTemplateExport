@@ -288,47 +288,221 @@ function Show-SameTenantWorkflow {
         "within the same Microsoft 365 tenant."
     )
     
-    Write-Step 1 "Export the source site"
-    Write-Host "    Run:" -ForegroundColor Gray
-    Write-Host @"
+    $workflowRunning = $true
+    $exportedTemplate = $null
+    
+    while ($workflowRunning) {
+        $choice = Show-Menu -Title "Same-Tenant Workflow Steps" `
+            -Options @(
+                "Export source site to template",
+                "Inspect exported template",
+                "Import template to target site",
+                "View all commands (reference)"
+            ) `
+            -Prompt "Select step to execute"
+        
+        switch ($choice) {
+            "1" {
+                # Export source site
+                Write-SubHeader "Step 1: Export Source Site"
+                
+                Write-Host "`nEnter source site URL: " -ForegroundColor Yellow -NoNewline
+                $sourceUrl = Read-Host
+                
+                if ([string]::IsNullOrWhiteSpace($sourceUrl)) {
+                    Write-Host "Source URL is required. Operation cancelled." -ForegroundColor Red
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                Write-Host "`nInclude content (lists/libraries data)? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
+                $includeContent = Read-Host
+                $includeContentSwitch = if ($includeContent -eq 'N' -or $includeContent -eq 'n') { "" } else { "-IncludeContent" }
+                
+                Write-Host "`nExecuting export..." -ForegroundColor Cyan
+                Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                Write-Host ".\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl `"$sourceUrl`" -ConfigFile `"$ConfigFile`" $includeContentSwitch" -ForegroundColor White
+                
+                if (Test-Path ".\Export-SharePointSiteTemplate.ps1") {
+                    try {
+                        if ($includeContentSwitch) {
+                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $ConfigFile -IncludeContent
+                        }
+                        else {
+                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $ConfigFile
+                        }
+                        
+                        # Try to find the most recent template
+                        $templates = Get-ChildItem "C:\PSReports\SiteTemplates\*.pnp" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+                        if ($templates) {
+                            $exportedTemplate = $templates[0].FullName
+                            Write-Host "`n✓ Export completed!" -ForegroundColor Green
+                            Write-Host "Template saved: $exportedTemplate" -ForegroundColor Cyan
+                        }
+                    }
+                    catch {
+                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
+                else {
+                    Write-Host "`nERROR: Export-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
+                }
+                
+                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+            "2" {
+                # Inspect template
+                Write-SubHeader "Step 2: Inspect Exported Template"
+                
+                if ($exportedTemplate) {
+                    Write-Host "`nMost recent template: " -ForegroundColor Cyan
+                    Write-Host $exportedTemplate -ForegroundColor White
+                    Write-Host "`nUse this template? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
+                    $useRecent = Read-Host
+                    
+                    if ($useRecent -eq 'N' -or $useRecent -eq 'n') {
+                        Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
+                        $templatePath = Read-Host
+                    }
+                    else {
+                        $templatePath = $exportedTemplate
+                    }
+                }
+                else {
+                    Write-Host "`nEnter template path: " -ForegroundColor Yellow -NoNewline
+                    $templatePath = Read-Host
+                }
+                
+                if ([string]::IsNullOrWhiteSpace($templatePath)) {
+                    Write-Host "Template path is required. Operation cancelled." -ForegroundColor Red
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                Write-Host "`nExecuting inspection..." -ForegroundColor Cyan
+                Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                Write-Host ".\Get-TemplateContent.ps1 -TemplatePath `"$templatePath`" -Detailed -ShowUsers -ShowContent" -ForegroundColor White
+                
+                if (Test-Path ".\Get-TemplateContent.ps1") {
+                    try {
+                        & ".\Get-TemplateContent.ps1" -TemplatePath $templatePath -Detailed -ShowUsers -ShowContent
+                    }
+                    catch {
+                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
+                else {
+                    Write-Host "`nERROR: Get-TemplateContent.ps1 not found" -ForegroundColor Red
+                }
+                
+                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+            "3" {
+                # Import to target
+                Write-SubHeader "Step 3: Import to Target Site"
+                
+                Write-Host "`n⚠️  PREREQUISITE: Target site must already exist!" -ForegroundColor Yellow
+                Write-Host "Create via Admin Center or PowerShell before proceeding.`n" -ForegroundColor Yellow
+                
+                Write-Host "Enter target site URL: " -ForegroundColor Yellow -NoNewline
+                $targetUrl = Read-Host
+                
+                if ([string]::IsNullOrWhiteSpace($targetUrl)) {
+                    Write-Host "Target URL is required. Operation cancelled." -ForegroundColor Red
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                if ($exportedTemplate) {
+                    Write-Host "`nMost recent template: " -ForegroundColor Cyan
+                    Write-Host $exportedTemplate -ForegroundColor White
+                    Write-Host "`nUse this template? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
+                    $useRecent = Read-Host
+                    
+                    if ($useRecent -eq 'N' -or $useRecent -eq 'n') {
+                        Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
+                        $templatePath = Read-Host
+                    }
+                    else {
+                        $templatePath = $exportedTemplate
+                    }
+                }
+                else {
+                    Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
+                    $templatePath = Read-Host
+                }
+                
+                if ([string]::IsNullOrWhiteSpace($templatePath)) {
+                    Write-Host "Template path is required. Operation cancelled." -ForegroundColor Red
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                Write-Host "`nExecuting import..." -ForegroundColor Cyan
+                Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                Write-Host ".\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl `"$targetUrl`" -TemplatePath `"$templatePath`" -ConfigFile `"$ConfigFile`"" -ForegroundColor White
+                
+                if (Test-Path ".\Import-SharePointSiteTemplate.ps1") {
+                    try {
+                        & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $targetUrl -TemplatePath $templatePath -ConfigFile $ConfigFile
+                        Write-Host "`n✓ Import completed!" -ForegroundColor Green
+                    }
+                    catch {
+                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
+                else {
+                    Write-Host "`nERROR: Import-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
+                }
+                
+                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+            "4" {
+                # View reference commands
+                Write-SubHeader "Complete Workflow Reference"
+                
+                Write-Step 1 "Export the source site"
+                Write-Host @"
     .\Export-SharePointSiteTemplate.ps1 ``
         -SourceSiteUrl "https://yourtenant.sharepoint.com/sites/SourceSite" ``
+        -ConfigFile "$ConfigFile" ``
         -IncludeContent
 "@ -ForegroundColor White
-    
-    Write-Step 2 "Inspect the exported template (optional)"
-    Write-Host "    Run:" -ForegroundColor Gray
-    Write-Host @"
+                
+                Write-Step 2 "Inspect the exported template (optional)"
+                Write-Host @"
     .\Get-TemplateContent.ps1 ``
         -TemplatePath "C:\PSReports\SiteTemplates\SiteTemplate_*.pnp" ``
         -Detailed -ShowUsers -ShowContent
 "@ -ForegroundColor White
-    
-    Write-Step 3 "Create the target site"
-    Write-Host "    Options:" -ForegroundColor Gray
-    Write-Host "      a) Via SharePoint Admin Center:" -ForegroundColor White
-    Write-Host "         https://yourtenant-admin.sharepoint.com" -ForegroundColor Gray
-    Write-Host "      b) Via PowerShell:" -ForegroundColor White
-    Write-Host @"
-         Connect-PnPOnline -Url "https://yourtenant-admin.sharepoint.com" -Interactive
-         New-PnPSite -Type TeamSite -Title "Target Site" -Alias "TargetSite" -Wait
-"@ -ForegroundColor Gray
-    
-    Write-Step 4 "Import to the target site"
-    Write-Host "    Run:" -ForegroundColor Gray
-    Write-Host @"
+                
+                Write-Step 3 "Import to the target site"
+                Write-Host @"
     .\Import-SharePointSiteTemplate.ps1 ``
         -TargetSiteUrl "https://yourtenant.sharepoint.com/sites/TargetSite" ``
-        -TemplatePath "C:\PSReports\SiteTemplates\SiteTemplate_*.pnp"
+        -TemplatePath "C:\PSReports\SiteTemplates\SiteTemplate_*.pnp" ``
+        -ConfigFile "$ConfigFile"
 "@ -ForegroundColor White
-    
-    Write-Host "`n" + "─" * 70 -ForegroundColor Cyan
-    Write-Host "TIP: Use -Preview on export and -InspectOnly on import to see" -ForegroundColor Yellow
-    Write-Host "     what will be included before running the full migration." -ForegroundColor Yellow
-    Write-Host "─" * 70 + "`n" -ForegroundColor Cyan
-    
-    Write-Host "Press any key to return to main menu..." -ForegroundColor Gray
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                
+                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+            "0" {
+                $workflowRunning = $false
+            }
+            default {
+                Write-Host "`nInvalid choice. Press any key to continue..." -ForegroundColor Red
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+        }
+    }
 }
 
 function Show-CrossTenantWorkflow {
@@ -339,77 +513,441 @@ function Show-CrossTenantWorkflow {
         "from one Microsoft 365 tenant to another tenant."
     )
     
-    Write-Step 1 "Export from source tenant"
-    Write-Host "    Run:" -ForegroundColor Gray
-    Write-Host @"
+    # Load config files to get tenant domains
+    $sourceConfig = $null
+    $targetConfig = $null
+    $sourceDomain = ""
+    $targetDomain = ""
+    
+    if (Test-Path $SourceConfigFile) {
+        try {
+            $sourceConfig = Get-Content $SourceConfigFile -Raw | ConvertFrom-Json
+            $sourceDomain = $sourceConfig.tenantDomain
+        }
+        catch {
+            Write-Host "Warning: Could not read source config file" -ForegroundColor Yellow
+        }
+    }
+    
+    if (Test-Path $TargetConfigFile) {
+        try {
+            $targetConfig = Get-Content $TargetConfigFile -Raw | ConvertFrom-Json
+            $targetDomain = $targetConfig.tenantDomain
+        }
+        catch {
+            Write-Host "Warning: Could not read target config file" -ForegroundColor Yellow
+        }
+    }
+    
+    $workflowRunning = $true
+    $exportedTemplate = $null
+    $userMappingFile = "user-mapping.csv"
+    
+    while ($workflowRunning) {
+        $choice = Show-Menu -Title "Cross-Tenant Workflow Steps" `
+            -Options @(
+                "Export from source tenant",
+                "Generate user mapping template",
+                "Edit user mapping CSV",
+                "Validate target users",
+                "Import to target tenant with user mapping",
+                "View all commands (reference)"
+            ) `
+            -Prompt "Select step to execute"
+        
+        switch ($choice) {
+            "1" {
+                # Export from source
+                Write-SubHeader "Step 1: Export from Source Tenant"
+                
+                if ($sourceDomain) {
+                    Write-Host "`nSource tenant: " -ForegroundColor Cyan -NoNewline
+                    Write-Host $sourceDomain -ForegroundColor White
+                }
+                
+                Write-Host "`nEnter source site URL: " -ForegroundColor Yellow -NoNewline
+                $sourceUrl = Read-Host
+                
+                if ([string]::IsNullOrWhiteSpace($sourceUrl)) {
+                    Write-Host "Source URL is required. Operation cancelled." -ForegroundColor Red
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                Write-Host "`nInclude content? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
+                $includeContent = Read-Host
+                $includeContentSwitch = if ($includeContent -eq 'N' -or $includeContent -eq 'n') { "" } else { "-IncludeContent" }
+                
+                Write-Host "`nExecuting export..." -ForegroundColor Cyan
+                Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                Write-Host ".\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl `"$sourceUrl`" -ConfigFile `"$SourceConfigFile`" $includeContentSwitch" -ForegroundColor White
+                
+                if (Test-Path ".\Export-SharePointSiteTemplate.ps1") {
+                    try {
+                        if ($includeContentSwitch) {
+                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $SourceConfigFile -IncludeContent
+                        }
+                        else {
+                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $SourceConfigFile
+                        }
+                        
+                        $templates = Get-ChildItem "C:\PSReports\SiteTemplates\*.pnp" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+                        if ($templates) {
+                            $exportedTemplate = $templates[0].FullName
+                            Write-Host "`n✓ Export completed!" -ForegroundColor Green
+                            Write-Host "Template saved: $exportedTemplate" -ForegroundColor Cyan
+                        }
+                    }
+                    catch {
+                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
+                else {
+                    Write-Host "`nERROR: Export-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
+                }
+                
+                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+            "2" {
+                # Generate user mapping
+                Write-SubHeader "Step 2: Generate User Mapping Template"
+                
+                if ($exportedTemplate) {
+                    Write-Host "`nMost recent template: " -ForegroundColor Cyan
+                    Write-Host $exportedTemplate -ForegroundColor White
+                    Write-Host "`nUse this template? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
+                    $useRecent = Read-Host
+                    
+                    if ($useRecent -eq 'N' -or $useRecent -eq 'n') {
+                        Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
+                        $templatePath = Read-Host
+                    }
+                    else {
+                        $templatePath = $exportedTemplate
+                    }
+                }
+                else {
+                    Write-Host "`nEnter template path: " -ForegroundColor Yellow -NoNewline
+                    $templatePath = Read-Host
+                }
+                
+                if ([string]::IsNullOrWhiteSpace($templatePath)) {
+                    Write-Host "Template path is required. Operation cancelled." -ForegroundColor Red
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                Write-Host "`nOutput CSV path (default: user-mapping.csv): " -ForegroundColor Yellow -NoNewline
+                $outputPath = Read-Host
+                if ([string]::IsNullOrWhiteSpace($outputPath)) {
+                    $outputPath = "user-mapping.csv"
+                }
+                $userMappingFile = $outputPath
+                
+                Write-Host "`nExecuting user mapping generation..." -ForegroundColor Cyan
+                Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                Write-Host ".\New-UserMappingTemplate.ps1 -TemplatePath `"$templatePath`" -OutputPath `"$outputPath`"" -ForegroundColor White
+                
+                if (Test-Path ".\New-UserMappingTemplate.ps1") {
+                    try {
+                        & ".\New-UserMappingTemplate.ps1" -TemplatePath $templatePath -OutputPath $outputPath
+                        Write-Host "`n✓ User mapping template created!" -ForegroundColor Green
+                        Write-Host "File: $outputPath" -ForegroundColor Cyan
+                        
+                        if ($sourceDomain -and $targetDomain) {
+                            Write-Host "`nℹ️  TIP: Update TargetUser column in CSV:" -ForegroundColor Yellow
+                            Write-Host "   Replace '@$sourceDomain' with '@$targetDomain'" -ForegroundColor White
+                        }
+                    }
+                    catch {
+                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
+                else {
+                    Write-Host "`nERROR: New-UserMappingTemplate.ps1 not found" -ForegroundColor Red
+                }
+                
+                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+            "3" {
+                # Edit user mapping
+                Write-SubHeader "Step 3: Edit User Mapping CSV"
+                
+                Write-Host "`nUser mapping file (default: $userMappingFile): " -ForegroundColor Yellow -NoNewline
+                $mappingPath = Read-Host
+                if ([string]::IsNullOrWhiteSpace($mappingPath)) {
+                    $mappingPath = $userMappingFile
+                }
+                
+                if (Test-Path $mappingPath) {
+                    Write-Host "`nOpening $mappingPath in default editor..." -ForegroundColor Cyan
+                    
+                    if ($sourceDomain -and $targetDomain) {
+                        Write-Host "`nREMINDER: Update TargetUser column:" -ForegroundColor Yellow
+                        Write-Host "  Source domain: @$sourceDomain" -ForegroundColor White
+                        Write-Host "  Target domain: @$targetDomain" -ForegroundColor White
+                        Write-Host "`nExample mappings:" -ForegroundColor Yellow
+                        Write-Host "  john.smith@$sourceDomain → john.smith@$targetDomain" -ForegroundColor White
+                        Write-Host "  admin@$sourceDomain → it.admin@$targetDomain" -ForegroundColor White
+                    }
+                    
+                    try {
+                        Start-Process $mappingPath
+                        Write-Host "`n✓ File opened in default application" -ForegroundColor Green
+                        Write-Host "Edit the file and save when complete." -ForegroundColor Cyan
+                    }
+                    catch {
+                        Write-Host "`nERROR: Could not open file: $($_.Exception.Message)" -ForegroundColor Red
+                        Write-Host "Please open manually: $mappingPath" -ForegroundColor Yellow
+                    }
+                }
+                else {
+                    Write-Host "`nERROR: File not found: $mappingPath" -ForegroundColor Red
+                    Write-Host "Generate the user mapping template first (option 2)" -ForegroundColor Yellow
+                }
+                
+                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+            "4" {
+                # Validate users
+                Write-SubHeader "Step 4: Validate Target Users"
+                
+                if ($targetDomain) {
+                    Write-Host "`nTarget tenant: " -ForegroundColor Cyan -NoNewline
+                    Write-Host $targetDomain -ForegroundColor White
+                }
+                
+                Write-Host "`nEnter target site URL: " -ForegroundColor Yellow -NoNewline
+                $targetUrl = Read-Host
+                
+                if ([string]::IsNullOrWhiteSpace($targetUrl)) {
+                    Write-Host "Target URL is required. Operation cancelled." -ForegroundColor Red
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                if ($exportedTemplate) {
+                    Write-Host "`nMost recent template: " -ForegroundColor Cyan
+                    Write-Host $exportedTemplate -ForegroundColor White
+                    Write-Host "`nUse this template? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
+                    $useRecent = Read-Host
+                    
+                    if ($useRecent -eq 'N' -or $useRecent -eq 'n') {
+                        Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
+                        $templatePath = Read-Host
+                    }
+                    else {
+                        $templatePath = $exportedTemplate
+                    }
+                }
+                else {
+                    Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
+                    $templatePath = Read-Host
+                }
+                
+                if ([string]::IsNullOrWhiteSpace($templatePath)) {
+                    Write-Host "Template path is required. Operation cancelled." -ForegroundColor Red
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                Write-Host "`nUser mapping file (default: $userMappingFile): " -ForegroundColor Yellow -NoNewline
+                $mappingPath = Read-Host
+                if ([string]::IsNullOrWhiteSpace($mappingPath)) {
+                    $mappingPath = $userMappingFile
+                }
+                
+                if (-not (Test-Path $mappingPath)) {
+                    Write-Host "`nERROR: User mapping file not found: $mappingPath" -ForegroundColor Red
+                    Write-Host "Generate and edit the mapping file first (options 2 & 3)" -ForegroundColor Yellow
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                Write-Host "`nValidating users in target tenant..." -ForegroundColor Cyan
+                Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                Write-Host ".\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl `"$targetUrl`" -TemplatePath `"$templatePath`" -UserMappingFile `"$mappingPath`" -ConfigFile `"$TargetConfigFile`" -ValidateUsersOnly" -ForegroundColor White
+                
+                if (Test-Path ".\Import-SharePointSiteTemplate.ps1") {
+                    try {
+                        & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $targetUrl -TemplatePath $templatePath -UserMappingFile $mappingPath -ConfigFile $TargetConfigFile -ValidateUsersOnly
+                        Write-Host "`n✓ User validation completed!" -ForegroundColor Green
+                        Write-Host "If any users are invalid, update the CSV and re-validate." -ForegroundColor Cyan
+                    }
+                    catch {
+                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
+                else {
+                    Write-Host "`nERROR: Import-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
+                }
+                
+                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+            "5" {
+                # Import with user mapping
+                Write-SubHeader "Step 5: Import to Target Tenant"
+                
+                Write-Host "`n⚠️  PREREQUISITES:" -ForegroundColor Yellow
+                Write-Host "  1. Target site must exist in target tenant" -ForegroundColor Yellow
+                Write-Host "  2. All target users must be validated (Step 4)`n" -ForegroundColor Yellow
+                
+                if ($targetDomain) {
+                    Write-Host "Target tenant: " -ForegroundColor Cyan -NoNewline
+                    Write-Host $targetDomain -ForegroundColor White
+                }
+                
+                Write-Host "`nEnter target site URL: " -ForegroundColor Yellow -NoNewline
+                $targetUrl = Read-Host
+                
+                if ([string]::IsNullOrWhiteSpace($targetUrl)) {
+                    Write-Host "Target URL is required. Operation cancelled." -ForegroundColor Red
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                if ($exportedTemplate) {
+                    Write-Host "`nMost recent template: " -ForegroundColor Cyan
+                    Write-Host $exportedTemplate -ForegroundColor White
+                    Write-Host "`nUse this template? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
+                    $useRecent = Read-Host
+                    
+                    if ($useRecent -eq 'N' -or $useRecent -eq 'n') {
+                        Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
+                        $templatePath = Read-Host
+                    }
+                    else {
+                        $templatePath = $exportedTemplate
+                    }
+                }
+                else {
+                    Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
+                    $templatePath = Read-Host
+                }
+                
+                if ([string]::IsNullOrWhiteSpace($templatePath)) {
+                    Write-Host "Template path is required. Operation cancelled." -ForegroundColor Red
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                Write-Host "`nUser mapping file (default: $userMappingFile): " -ForegroundColor Yellow -NoNewline
+                $mappingPath = Read-Host
+                if ([string]::IsNullOrWhiteSpace($mappingPath)) {
+                    $mappingPath = $userMappingFile
+                }
+                
+                if (-not (Test-Path $mappingPath)) {
+                    Write-Host "`nERROR: User mapping file not found: $mappingPath" -ForegroundColor Red
+                    Write-Host "Generate and edit the mapping file first (options 2 & 3)" -ForegroundColor Yellow
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                Write-Host "`n⚠️  FINAL CONFIRMATION" -ForegroundColor Yellow
+                Write-Host "About to import to: $targetUrl" -ForegroundColor White
+                Write-Host "From template: $templatePath" -ForegroundColor White
+                Write-Host "With user mapping: $mappingPath" -ForegroundColor White
+                Write-Host "`nProceed with import? [Y/N]: " -ForegroundColor Yellow -NoNewline
+                $confirm = Read-Host
+                
+                if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+                    Write-Host "Import cancelled." -ForegroundColor Cyan
+                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                    continue
+                }
+                
+                Write-Host "`nExecuting import with user mapping..." -ForegroundColor Cyan
+                Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                Write-Host ".\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl `"$targetUrl`" -TemplatePath `"$templatePath`" -UserMappingFile `"$mappingPath`" -ConfigFile `"$TargetConfigFile`" -IgnoreDuplicateDataRowErrors" -ForegroundColor White
+                
+                if (Test-Path ".\Import-SharePointSiteTemplate.ps1") {
+                    try {
+                        & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $targetUrl -TemplatePath $templatePath -UserMappingFile $mappingPath -ConfigFile $TargetConfigFile -IgnoreDuplicateDataRowErrors
+                        Write-Host "`n✓ Import completed!" -ForegroundColor Green
+                        Write-Host "Cross-tenant migration finished. Review logs for details." -ForegroundColor Cyan
+                    }
+                    catch {
+                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                    }
+                }
+                else {
+                    Write-Host "`nERROR: Import-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
+                }
+                
+                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+            "6" {
+                # View reference commands
+                Write-SubHeader "Complete Workflow Reference"
+                
+                Write-Step 1 "Export from source tenant"
+                Write-Host @"
     .\Export-SharePointSiteTemplate.ps1 ``
         -SourceSiteUrl "https://sourcetenant.sharepoint.com/sites/Site" ``
-        -ConfigFile "app-config-source.json" ``
+        -ConfigFile "$SourceConfigFile" ``
         -IncludeContent
 "@ -ForegroundColor White
-    
-    Write-Step 2 "Generate user mapping template"
-    Write-Host "    Run:" -ForegroundColor Gray
-    Write-Host @"
+                
+                Write-Step 2 "Generate user mapping template"
+                Write-Host @"
     .\New-UserMappingTemplate.ps1 ``
         -TemplatePath "C:\PSReports\SiteTemplates\SiteTemplate_*.pnp" ``
-        -OutputPath "user-mapping.csv"
+        -OutputPath "$userMappingFile"
 "@ -ForegroundColor White
-    
-    Write-Step 3 "Edit user mapping CSV"
-    Write-Host "    Actions:" -ForegroundColor Gray
-    Write-Host "      • Open user-mapping.csv in Excel or text editor" -ForegroundColor White
-    Write-Host "      • Update TargetUser column with target tenant emails" -ForegroundColor White
-    Write-Host "      • Update TargetDisplayName if names differ" -ForegroundColor White
-    Write-Host "      • Leave TargetUser empty to skip unmapped users" -ForegroundColor White
-    Write-Host "`n    Example:" -ForegroundColor Gray
-    Write-Host "      john@source.com → john@target.com" -ForegroundColor White
-    Write-Host "      admin@source.com → it.admin@target.com" -ForegroundColor White
-    
-    Write-Step 4 "Validate target users"
-    Write-Host "    Run:" -ForegroundColor Gray
-    Write-Host @"
+                
+                Write-Step 3 "Edit user mapping CSV"
+                Write-Host "    Edit $userMappingFile - update TargetUser column" -ForegroundColor White
+                if ($sourceDomain -and $targetDomain) {
+                    Write-Host "    Replace @$sourceDomain with @$targetDomain" -ForegroundColor Gray
+                }
+                
+                Write-Step 4 "Validate target users"
+                Write-Host @"
     .\Import-SharePointSiteTemplate.ps1 ``
         -TargetSiteUrl "https://targettenant.sharepoint.com/sites/Site" ``
         -TemplatePath "C:\PSReports\SiteTemplates\SiteTemplate_*.pnp" ``
-        -UserMappingFile "user-mapping.csv" ``
-        -ConfigFile "app-config-target.json" ``
+        -UserMappingFile "$userMappingFile" ``
+        -ConfigFile "$TargetConfigFile" ``
         -ValidateUsersOnly
 "@ -ForegroundColor White
-    
-    Write-Host "`n    Fix any validation errors in user-mapping.csv and re-validate" -ForegroundColor Yellow
-    
-    Write-Step 5 "Create target site in target tenant"
-    Write-Host "    Options:" -ForegroundColor Gray
-    Write-Host "      a) Via Target Tenant Admin Center:" -ForegroundColor White
-    Write-Host "         https://targettenant-admin.sharepoint.com" -ForegroundColor Gray
-    Write-Host "      b) Via PowerShell:" -ForegroundColor White
-    Write-Host @"
-         Connect-PnPOnline -Url "https://targettenant-admin.sharepoint.com" ``
-             -ClientId "TARGET-APP-ID" ``
-             -Thumbprint "CERT-THUMBPRINT" ``
-             -Tenant "targettenant.onmicrosoft.com"
-         New-PnPSite -Type TeamSite -Title "Target Site" -Alias "TargetSite" -Wait
-"@ -ForegroundColor Gray
-    
-    Write-Step 6 "Import to target tenant with user mapping"
-    Write-Host "    Run:" -ForegroundColor Gray
-    Write-Host @"
+                
+                Write-Step 5 "Import with user mapping"
+                Write-Host @"
     .\Import-SharePointSiteTemplate.ps1 ``
         -TargetSiteUrl "https://targettenant.sharepoint.com/sites/Site" ``
         -TemplatePath "C:\PSReports\SiteTemplates\SiteTemplate_*.pnp" ``
-        -UserMappingFile "user-mapping.csv" ``
-        -ConfigFile "app-config-target.json" ``
+        -UserMappingFile "$userMappingFile" ``
+        -ConfigFile "$TargetConfigFile" ``
         -IgnoreDuplicateDataRowErrors
 "@ -ForegroundColor White
-    
-    Write-Host "`n" + "─" * 70 -ForegroundColor Cyan
-    Write-Host "TIP: Always validate users before the full import to catch" -ForegroundColor Yellow
-    Write-Host "     missing or invalid target users early in the process." -ForegroundColor Yellow
-    Write-Host "─" * 70 + "`n" -ForegroundColor Cyan
-    
-    Write-Host "Press any key to return to main menu..." -ForegroundColor Gray
-    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                
+                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+            "0" {
+                $workflowRunning = $false
+            }
+            default {
+                Write-Host "`nInvalid choice. Press any key to continue..." -ForegroundColor Red
+                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+            }
+        }
+    }
 }
 
 #endregion
