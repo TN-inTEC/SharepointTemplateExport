@@ -745,7 +745,7 @@ Gain precise control over what gets exported and imported with selective migrati
 Before exporting or importing, inspect template contents to make informed decisions:
 
 ```powershell
-.\Get-TemplateContent.ps1 -TemplatePath "C:\PSReports\SiteTemplates\MySite.pnp" -ShowAll
+.\Get-TemplateContent.ps1 -TemplatePath "C:\PSReports\SiteTemplates\MySite.pnp" -Detailed -ShowUsers -ShowContent
 ```
 
 **Displays:**
@@ -760,14 +760,17 @@ Before exporting or importing, inspect template contents to make informed decisi
 
 **Options:**
 ```powershell
-# Show specific components
-.\Get-TemplateContent.ps1 -TemplatePath "template.pnp" -ShowLists -ShowUsers
+# Show specific information
+.\Get-TemplateContent.ps1 -TemplatePath "template.pnp" -ShowUsers
+
+# Show detailed analysis with user and content information
+.\Get-TemplateContent.ps1 -TemplatePath "template.pnp" -Detailed -ShowUsers -ShowContent
 
 # Export analysis to JSON
-.\Get-TemplateContent.ps1 -TemplatePath "template.pnp" -ExportToJSON -OutputPath "analysis.json"
+.\Get-TemplateContent.ps1 -TemplatePath "template.pnp" -OutputFormat JSON -OutputPath "analysis.json"
 
 # Compare two templates
-.\Get-TemplateContent.ps1 -TemplatePath "template1.pnp" -ComparePath "template2.pnp"
+.\Get-TemplateContent.ps1 -TemplatePath "template1.pnp" -CompareTo "template2.pnp"
 ```
 
 ### 📤 Selective Export
@@ -944,7 +947,7 @@ Compare two templates to see differences:
 # 3. Inspect exported template
 .\Get-TemplateContent.ps1 `
     -TemplatePath "C:\PSReports\SiteTemplates\SourceSite_Selective.pnp" `
-    -ShowAll
+    -Detailed -ShowUsers -ShowContent
 
 # 4. Compare with existing target (if applicable)
 .\Compare-Templates.ps1 `

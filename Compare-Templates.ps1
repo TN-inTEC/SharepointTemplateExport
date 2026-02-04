@@ -90,16 +90,34 @@ function Extract-PnPTemplate {
         
         # Create temp extraction folder
         $extractPath = Join-Path ([System.IO.Path]::GetTempPath()) "PnPTemplate_$([Guid]::NewGuid())"
+        
+        # Ensure temp folder doesn't exist
+        if (Test-Path $extractPath) {
+            Remove-Item $extractPath -Recurse -Force -ErrorAction SilentlyContinue
+        }
+        
         New-Item -ItemType Directory -Path $extractPath -Force | Out-Null
         
         # Extract ZIP
         [System.IO.Compression.ZipFile]::ExtractToDirectory($TemplatePath, $extractPath)
         
-        # Find the XML manifest
-        $xmlFile = Get-ChildItem -Path $extractPath -Filter "*.xml" -File | Select-Object -First 1
+        # Find the XML manifest - look for Provisioning root element (actual template)
+        # Newer .pnp files have the template in Files subfolder, older ones have it at root
+        $xmlFile = Get-ChildItem -Path $extractPath -Filter "*.xml" -Recurse | 
+            Where-Object { $_.Name -ne '[Content_Types].xml' } |
+            ForEach-Object {
+                try {
+                    $testXml = [xml](Get-Content $_.FullName -Raw -ErrorAction Stop)
+                    if ($testXml.DocumentElement.LocalName -eq 'Provisioning') {
+                        return $_
+                    }
+                } catch {
+                    # Skip files that aren't valid XML or we can't read
+                }
+            } | Select-Object -First 1
         
         if (-not $xmlFile) {
-            throw "No XML manifest found in template"
+            throw "No Provisioning template XML found in PnP package"
         }
         
         # Load XML
@@ -508,10 +526,10 @@ catch {
 }
 finally {
     # Ensure cleanup
-    if ($template1.ExtractPath -and (Test-Path $template1.ExtractPath)) {
+    if ($template1 -and $template1.ExtractPath -and (Test-Path $template1.ExtractPath)) {
         Remove-Item -Path $template1.ExtractPath -Recurse -Force -ErrorAction SilentlyContinue
     }
-    if ($template2.ExtractPath -and (Test-Path $template2.ExtractPath)) {
+    if ($template2 -and $template2.ExtractPath -and (Test-Path $template2.ExtractPath)) {
         Remove-Item -Path $template2.ExtractPath -Recurse -Force -ErrorAction SilentlyContinue
     }
 }

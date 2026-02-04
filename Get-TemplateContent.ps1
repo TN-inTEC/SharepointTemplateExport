@@ -120,6 +120,12 @@ function Extract-PnPTemplate {
     
     $extension = [System.IO.Path]::GetExtension($TemplatePath).ToLower()
     $tempFolder = Join-Path $env:TEMP "PnPInspection_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+    
+    # Ensure temp folder doesn't exist
+    if (Test-Path $tempFolder) {
+        Remove-Item $tempFolder -Recurse -Force -ErrorAction SilentlyContinue
+    }
+    
     New-Item -ItemType Directory -Path $tempFolder -Force | Out-Null
     
     try {
@@ -128,11 +134,23 @@ function Extract-PnPTemplate {
             Add-Type -AssemblyName System.IO.Compression.FileSystem
             [System.IO.Compression.ZipFile]::ExtractToDirectory($TemplatePath, $tempFolder)
             
-            # Find the XML manifest
-            $xmlFile = Get-ChildItem -Path $tempFolder -Filter "*.xml" -Recurse | Select-Object -First 1
+            # Find the XML manifest - look for Provisioning root element (actual template)
+            # Newer .pnp files have the template in Files subfolder, older ones have it at root
+            $xmlFile = Get-ChildItem -Path $tempFolder -Filter "*.xml" -Recurse | 
+                Where-Object { $_.Name -ne '[Content_Types].xml' } |
+                ForEach-Object {
+                    try {
+                        $testXml = [xml](Get-Content $_.FullName -Raw -ErrorAction Stop)
+                        if ($testXml.DocumentElement.LocalName -eq 'Provisioning') {
+                            return $_
+                        }
+                    } catch {
+                        # Skip files that aren't valid XML or we can't read
+                    }
+                } | Select-Object -First 1
             
             if (-not $xmlFile) {
-                throw "No XML manifest found in PnP template"
+                throw "No Provisioning template XML found in PnP package"
             }
             
             [xml]$xml = Get-Content $xmlFile.FullName -Raw
@@ -594,6 +612,9 @@ function Compare-TemplateFiles {
 
 #region Main Script
 
+$templateData = $null
+$compareData = $null
+
 try {
     Write-Host ""
     Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Cyan
@@ -657,11 +678,11 @@ catch {
 }
 finally {
     # Cleanup temp folders
-    if ($templateData.TempFolder -and (Test-Path $templateData.TempFolder)) {
+    if ($templateData -and $templateData.TempFolder -and (Test-Path $templateData.TempFolder)) {
         Remove-Item $templateData.TempFolder -Recurse -Force -ErrorAction SilentlyContinue
     }
     
-    if ($compareData.TempFolder -and (Test-Path $compareData.TempFolder)) {
+    if ($compareData -and $compareData.TempFolder -and (Test-Path $compareData.TempFolder)) {
         Remove-Item $compareData.TempFolder -Recurse -Force -ErrorAction SilentlyContinue
     }
 }
