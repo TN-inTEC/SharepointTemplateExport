@@ -582,9 +582,11 @@ The scripts use **certificate-based authentication** with the following priority
 ```
 SharepointTemplateExport/
 ├── Core Scripts
-│   ├── Export-SharePointSiteTemplate.ps1     # Export site to PnP template
-│   ├── Import-SharePointSiteTemplate.ps1     # Import PnP template to site
-│   └── New-UserMappingTemplate.ps1           # Generate user mapping CSV (NEW)
+│   ├── Export-SharePointSiteTemplate.ps1     # Export site to PnP template (with selective export)
+│   ├── Import-SharePointSiteTemplate.ps1     # Import PnP template to site (with selective import)
+│   ├── New-UserMappingTemplate.ps1           # Generate user mapping CSV for cross-tenant migrations
+│   ├── Get-TemplateContent.ps1               # Inspect and analyze .pnp template files (NEW v3.0)
+│   └── Compare-Templates.ps1                 # Compare two templates and show differences (NEW v3.0)
 ├── Utility Scripts
 │   ├── Remove-DeletedSharePointSite.ps1      # Cleanup deleted sites from recycle bin
 │   ├── Test-Configuration.ps1                # Validate configuration files
@@ -594,7 +596,7 @@ SharepointTemplateExport/
 │   ├── app-config.sample.json                # Configuration template
 │   ├── app-config-source.example.json        # Example for source tenant
 │   ├── app-config-target.example.json        # Example for target tenant
-│   └── user-mapping.sample.csv               # User mapping CSV template (NEW)
+│   └── user-mapping.sample.csv               # User mapping CSV template
 ├── Documentation
 │   ├── README.md                             # This file - main documentation
 │   ├── CONFIG-README.md                      # Configuration setup guide
@@ -725,6 +727,242 @@ Get-ChildItem Cert:\CurrentUser\My | Select-Object Subject, Thumbprint
    - Consider creating separate apps for different purposes
    - Revoke access when migration complete
 
+---
+
+## Selective Export & Import Features
+
+Gain precise control over what gets exported and imported with selective migration capabilities.
+
+### 🔍 Template Inspection
+
+Before exporting or importing, inspect template contents to make informed decisions:
+
+```powershell
+.\Get-TemplateContent.ps1 -TemplatePath "C:\PSReports\SiteTemplates\MySite.pnp" -ShowAll
+```
+
+**Displays:**
+- 📋 Lists and Libraries (with item counts and types)
+- 📄 Pages (with titles and layouts)
+- 👥 Users (extracted from permissions and metadata)
+- 📑 Content Types
+- 🔧 Site Columns/Fields
+- ⚙️ Features
+- 🔒 Security (groups, permissions)
+- 🧭 Navigation
+
+**Options:**
+```powershell
+# Show specific components
+.\Get-TemplateContent.ps1 -TemplatePath "template.pnp" -ShowLists -ShowUsers
+
+# Export analysis to JSON
+.\Get-TemplateContent.ps1 -TemplatePath "template.pnp" -ExportToJSON -OutputPath "analysis.json"
+
+# Compare two templates
+.\Get-TemplateContent.ps1 -TemplatePath "template1.pnp" -ComparePath "template2.pnp"
+```
+
+### 📤 Selective Export
+
+Export only what you need instead of the entire site:
+
+#### Export Specific Lists/Libraries
+
+```powershell
+# Include only specific lists
+.\Export-SharePointSiteTemplate.ps1 `
+    -SourceSiteUrl "https://tenant.sharepoint.com/sites/Project" `
+    -IncludeLists "Documents","Project Tasks","Issues" `
+    -IncludeContent
+
+# Exclude specific lists
+.\Export-SharePointSiteTemplate.ps1 `
+    -SourceSiteUrl "https://tenant.sharepoint.com/sites/Project" `
+    -ExcludeLists "Archive","Old Documents","Temp Data" `
+    -IncludeContent
+```
+
+#### Export Structure Only (No Content)
+
+```powershell
+# Export list/library schemas without any data
+.\Export-SharePointSiteTemplate.ps1 `
+    -SourceSiteUrl "https://tenant.sharepoint.com/sites/Project" `
+    -StructureOnly
+```
+
+Perfect for creating site templates, setting up development environments, or schema-only migrations.
+
+#### Export Without Pages
+
+```powershell
+# Exclude all site pages from export
+.\Export-SharePointSiteTemplate.ps1 `
+    -SourceSiteUrl "https://tenant.sharepoint.com/sites/Project" `
+    -ExcludePages `
+    -IncludeContent
+```
+
+#### Preview Export
+
+See what will be exported without creating the template file:
+
+```powershell
+.\Export-SharePointSiteTemplate.ps1 `
+    -SourceSiteUrl "https://tenant.sharepoint.com/sites/Project" `
+    -Preview
+```
+
+**Preview shows:**
+- Export configuration (content mode, structure only, etc.)
+- Lists/libraries that will be exported (with item counts)
+- Pages that will be exported (if not excluded)
+
+### 📥 Selective Import
+
+Control what gets imported to avoid overwriting critical content:
+
+#### Inspect Before Importing
+
+```powershell
+# Preview what's in the template without importing
+.\Import-SharePointSiteTemplate.ps1 `
+    -TargetSiteUrl "https://tenant.sharepoint.com/sites/Target" `
+    -TemplatePath "C:\Templates\source.pnp" `
+    -InspectOnly
+```
+
+#### Import Specific Components
+
+```powershell
+# Import only lists and pages
+.\Import-SharePointSiteTemplate.ps1 `
+    -TargetSiteUrl "https://tenant.sharepoint.com/sites/Target" `
+    -TemplatePath "C:\Templates\source.pnp" `
+    -ImportComponents Lists,Pages
+```
+
+**Available Components:** All, Lists, Libraries, Pages, Navigation, Security, ContentTypes, Fields, Features
+
+#### Import Specific Lists
+
+```powershell
+# Import only specific lists
+.\Import-SharePointSiteTemplate.ps1 `
+    -TargetSiteUrl "https://tenant.sharepoint.com/sites/Target" `
+    -TemplatePath "C:\Templates\source.pnp" `
+    -IncludeLists "Documents","Project Tasks"
+
+# Import all except specific lists
+.\Import-SharePointSiteTemplate.ps1 `
+    -TargetSiteUrl "https://tenant.sharepoint.com/sites/Target" `
+    -TemplatePath "C:\Templates\source.pnp" `
+    -ExcludeLists "Archive","Temp Data"
+```
+
+#### Import Structure Only
+
+```powershell
+# Import list schemas without content
+.\Import-SharePointSiteTemplate.ps1 `
+    -TargetSiteUrl "https://tenant.sharepoint.com/sites/Target" `
+    -TemplatePath "C:\Templates\source.pnp" `
+    -StructureOnly
+```
+
+#### Skip Existing Lists
+
+```powershell
+# Don't recreate lists that already exist
+.\Import-SharePointSiteTemplate.ps1 `
+    -TargetSiteUrl "https://tenant.sharepoint.com/sites/Target" `
+    -TemplatePath "C:\Templates\source.pnp" `
+    -SkipExisting
+```
+
+### ⚖️ Template Comparison
+
+Compare two templates to see differences:
+
+```powershell
+.\Compare-Templates.ps1 `
+    -Template1Path "C:\Templates\before.pnp" `
+    -Template2Path "C:\Templates\after.pnp"
+```
+
+**Comparison shows:**
+- Items only in Template 1 (removed)
+- Items only in Template 2 (added)
+- Items in both (unchanged)
+- Total differences per component
+
+**Export formats:**
+
+```powershell
+# Save as HTML report
+.\Compare-Templates.ps1 -Template1Path "t1.pnp" -Template2Path "t2.pnp" `
+    -OutputFormat HTML -OutputPath "comparison.html"
+
+# Save as JSON or CSV
+.\Compare-Templates.ps1 -Template1Path "t1.pnp" -Template2Path "t2.pnp" `
+    -OutputFormat JSON -OutputPath "comparison.json"
+```
+
+**Compare specific components:**
+
+```powershell
+.\Compare-Templates.ps1 `
+    -Template1Path "v1.pnp" `
+    -Template2Path "v2.pnp" `
+    -CompareComponents Lists,Pages,Users
+```
+
+### 🎯 Complete Selective Migration Workflow
+
+```powershell
+# 1. Preview source site export
+.\Export-SharePointSiteTemplate.ps1 `
+    -SourceSiteUrl "https://tenant.sharepoint.com/sites/Source" `
+    -Preview
+
+# 2. Export selectively
+.\Export-SharePointSiteTemplate.ps1 `
+    -SourceSiteUrl "https://tenant.sharepoint.com/sites/Source" `
+    -ExcludeLists "Archive","Temp" `
+    -ExcludePages `
+    -IncludeContent `
+    -TemplateName "SourceSite_Selective"
+
+# 3. Inspect exported template
+.\Get-TemplateContent.ps1 `
+    -TemplatePath "C:\PSReports\SiteTemplates\SourceSite_Selective.pnp" `
+    -ShowAll
+
+# 4. Compare with existing target (if applicable)
+.\Compare-Templates.ps1 `
+    -Template1Path "C:\Templates\Target_Current.pnp" `
+    -Template2Path "C:\Templates\SourceSite_Selective.pnp" `
+    -OutputFormat HTML
+
+# 5. Inspect before importing
+.\Import-SharePointSiteTemplate.ps1 `
+    -TargetSiteUrl "https://targettenant.sharepoint.com/sites/Target" `
+    -TemplatePath "C:\Templates\SourceSite_Selective.pnp" `
+    -InspectOnly
+
+# 6. Import selectively with user mapping
+.\Import-SharePointSiteTemplate.ps1 `
+    -TargetSiteUrl "https://targettenant.sharepoint.com/sites/Target" `
+    -TemplatePath "C:\Templates\SourceSite_Selective.pnp" `
+    -ImportComponents Lists,Navigation,Security `
+    -SkipExisting `
+    -UserMappingFile "user-mapping.csv" `
+    -ConfigFile "app-config-target.json"
+```
+
+---
+
 ## Advanced Scenarios
 
 ### Cleanup Deleted Sites
@@ -816,6 +1054,18 @@ We welcome contributions! Please see [DEVELOPER.md](DEVELOPER.md) for:
 
 ## Version History
 
+- **v3.0** (February 2026)
+  - **Selective Export & Import**: Granular control over what gets migrated
+  - **Template Inspection Tool**: Analyze .pnp files before import
+  - **Template Comparison**: Compare two templates to identify differences
+  - Export/Import specific lists by name (whitelist or blacklist)
+  - Structure-only mode for schema migration
+  - Preview mode to see what will be exported
+  - InspectOnly mode to analyze templates before importing
+  - Component-level filtering (Lists, Pages, Navigation, etc.)
+  - SkipExisting option to avoid overwriting content
+  - New scripts: Get-TemplateContent.ps1, Compare-Templates.ps1
+
 - **v2.0** (February 2026)
   - Cross-tenant user mapping functionality
   - User extraction and validation tools
@@ -823,6 +1073,8 @@ We welcome contributions! Please see [DEVELOPER.md](DEVELOPER.md) for:
   - Client secret fallback support
   - Improved error handling and logging
   - Conditional Access bypass support
+  - New scripts: New-UserMappingTemplate.ps1
+  - Developer guide (DEVELOPER.md) with contribution standards
 
 - **v1.0** (Initial Release)
   - Basic export/import functionality

@@ -31,6 +31,22 @@
     Fields, Files, Lists, Pages, Publishing, RegionalSettings, SearchSettings, 
     SitePolicy, SupportedUILanguages, TermGroups, Workflows, etc.
 
+.PARAMETER IncludeLists
+    Specific list/library titles to include in export. If specified, only these lists will be exported.
+    Use with -IncludeContent to export data from these lists only.
+
+.PARAMETER ExcludeLists
+    Specific list/library titles to exclude from export.
+
+.PARAMETER ExcludePages
+    Exclude site pages from the export.
+
+.PARAMETER StructureOnly
+    Export only list/library structure without any content data. Overrides -IncludeContent.
+
+.PARAMETER Preview
+    Preview what will be exported without actually creating the template file.
+
 .PARAMETER ClientId
     Azure AD App Client ID for authentication. Uses PnP Management Shell if not specified.
 
@@ -43,6 +59,22 @@
 .EXAMPLE
     .\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl "https://contoso.sharepoint.com/sites/SLMAcademy" `
         -TemplateName "SLM_Academy_Full" -IncludeContent -ContentRowLimit 10000
+
+.EXAMPLE
+    .\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl "https://contoso.sharepoint.com/sites/ProjectSite" `
+        -OutputPath "C:\Templates" -IncludeLists "Documents","Tasks","Project Tracker" -IncludeContent
+
+.EXAMPLE
+    .\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl "https://contoso.sharepoint.com/sites/ProjectSite" `
+        -OutputPath "C:\Templates" -ExcludeLists "Archive","Old Documents" -IncludeContent
+
+.EXAMPLE
+    .\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl "https://contoso.sharepoint.com/sites/ProjectSite" `
+        -OutputPath "C:\Templates" -StructureOnly
+
+.EXAMPLE
+    .\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl "https://contoso.sharepoint.com/sites/ProjectSite" `
+        -OutputPath "C:\Templates" -Preview
 
 .NOTES
     Author: IT Support
@@ -72,6 +104,21 @@ param(
 
     [Parameter(Mandatory = $false)]
     [string[]]$ExcludeHandlers,
+
+    [Parameter(Mandatory = $false)]
+    [string[]]$IncludeLists,
+
+    [Parameter(Mandatory = $false)]
+    [string[]]$ExcludeLists,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$ExcludePages,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$StructureOnly,
+
+    [Parameter(Mandatory = $false)]
+    [switch]$Preview,
 
     [Parameter(Mandatory = $false)]
     [string]$ClientId,
@@ -360,16 +407,111 @@ try {
     Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Cyan
     Write-Host ""
     
+    # Validate selective export parameters
+    if ($IncludeLists -and $ExcludeLists) {
+        Write-Host "ERROR: Cannot specify both -IncludeLists and -ExcludeLists" -ForegroundColor Red
+        Write-Host "Choose one approach: whitelist (IncludeLists) or blacklist (ExcludeLists)" -ForegroundColor Yellow
+        Stop-Transcript
+        Disconnect-PnPOnline
+        exit 1
+    }
+    
+    # Get all lists for filtering logic
+    $allLists = Get-PnPList | Where-Object { -not $_.Hidden }
+    $listsToExport = $allLists
+    
+    # Apply list filtering
+    if ($IncludeLists) {
+        $listsToExport = $allLists | Where-Object { $IncludeLists -contains $_.Title }
+        $notFoundLists = $IncludeLists | Where-Object { $_ -notin $listsToExport.Title }
+        
+        if ($notFoundLists) {
+            Write-ProgressMessage "WARNING: The following lists were not found: $($notFoundLists -join ', ')" -Type "Warning"
+        }
+        
+        Write-ProgressMessage "Filtered to $($listsToExport.Count) lists: $($listsToExport.Title -join ', ')" -Type "Info"
+    }
+    elseif ($ExcludeLists) {
+        $listsToExport = $allLists | Where-Object { $ExcludeLists -notcontains $_.Title }
+        Write-ProgressMessage "Excluding $($ExcludeLists.Count) lists, exporting $($listsToExport.Count)" -Type "Info"
+    }
+    
+    # Preview mode - show what would be exported
+    if ($Preview) {
+        Write-Host ""
+        Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Magenta
+        Write-Host "  PREVIEW MODE - No Template Will Be Created" -ForegroundColor Magenta
+        Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Magenta
+        Write-Host ""
+        
+        Write-Host "Export Configuration:" -ForegroundColor Cyan
+        Write-Host "  Template Name:  $TemplateName" -ForegroundColor White
+        Write-Host "  Include Content: $(if ($IncludeContent -and -not $StructureOnly) { 'Yes' } else { 'No' })" -ForegroundColor White
+        Write-Host "  Structure Only:  $(if ($StructureOnly) { 'Yes' } else { 'No' })" -ForegroundColor White
+        Write-Host "  Exclude Pages:   $(if ($ExcludePages) { 'Yes' } else { 'No' })" -ForegroundColor White
+        Write-Host "  Row Limit:       $ContentRowLimit" -ForegroundColor White
+        Write-Host ""
+        
+        Write-Host "Lists/Libraries to Export ($($listsToExport.Count)):" -ForegroundColor Cyan
+        foreach ($list in $listsToExport | Sort-Object Title) {
+            $baseType = switch ($list.BaseType) {
+                "GenericList" { "List" }
+                "DocumentLibrary" { "Library" }
+                default { $list.BaseType }
+            }
+            $contentIndicator = if ($list.ItemCount -gt 0) { " ($($list.ItemCount) items)" } else { " (empty)" }
+            Write-Host "  • $($list.Title) [$baseType]$contentIndicator" -ForegroundColor White
+        }
+        Write-Host ""
+        
+        if (-not $ExcludePages) {
+            $pages = Get-PnPListItem -List "Site Pages" -PageSize 500 | Where-Object { $_["FileLeafRef"] -like "*.aspx" }
+            Write-Host "Pages to Export ($($pages.Count)):" -ForegroundColor Cyan
+            foreach ($page in $pages | Select-Object -First 20) {
+                Write-Host "  • $($page["FileLeafRef"])" -ForegroundColor White
+            }
+            if ($pages.Count -gt 20) {
+                Write-Host "  ... and $($pages.Count - 20) more pages" -ForegroundColor Gray
+            }
+            Write-Host ""
+        }
+        
+        Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Magenta
+        Write-Host "Preview complete. Use without -Preview to perform export." -ForegroundColor Magenta
+        Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Magenta
+        Write-Host ""
+        
+        Stop-Transcript
+        Disconnect-PnPOnline
+        exit 0
+    }
+    
     # Build handlers parameter
     $handlersParam = @{}
-    if ($ExcludeHandlers -and $ExcludeHandlers.Count -gt 0) {
-        Write-ProgressMessage "Excluding handlers: $($ExcludeHandlers -join ', ')" -Type "Warning"
-        # When excluding, we need to specify which handlers to include
-        # This is a simplified approach - adjust as needed
-        $handlersParam['Handlers'] = 'Lists,Fields,ContentTypes,Files,Pages,CustomActions,Features'
+    $handlersToInclude = @()
+    
+    # Default handlers to include
+    $defaultHandlers = @('Lists', 'Fields', 'ContentTypes', 'CustomActions', 'Features', 'Navigation', 'SiteSettings')
+    
+    if (-not $ExcludePages) {
+        $defaultHandlers += 'Pages'
     }
     else {
-        $handlersParam['Handlers'] = 'All'
+        Write-ProgressMessage "Pages will be excluded from export" -Type "Warning"
+    }
+    
+    if ($ExcludeHandlers -and $ExcludeHandlers.Count -gt 0) {
+        Write-ProgressMessage "Excluding handlers: $($ExcludeHandlers -join ', ')" -Type "Warning"
+        $handlersToInclude = $defaultHandlers | Where-Object { $ExcludeHandlers -notcontains $_ }
+        $handlersParam['Handlers'] = $handlersToInclude -join ','
+    }
+    else {
+        if ($ExcludePages) {
+            $handlersParam['Handlers'] = $defaultHandlers -join ','
+        }
+        else {
+            $handlersParam['Handlers'] = 'All'
+        }
     }
     
     # Export site template
@@ -381,24 +523,46 @@ try {
     }
     $exportParams += $handlersParam
     
-    Get-PnPSiteTemplate @exportParams
+    # If we're filtering lists, we need to export them individually
+    if ($IncludeLists -or $ExcludeLists) {
+        Write-ProgressMessage "Using selective list export..." -Type "Info"
+        
+        # First export base template without lists
+        $baseHandlers = $handlersParam['Handlers'] -replace ',?Lists,?', ''
+        $exportParams['Handlers'] = $baseHandlers
+        Get-PnPSiteTemplate @exportParams
+        
+        # Then add selected lists one by one
+        foreach ($list in $listsToExport) {
+            try {
+                Write-ProgressMessage "Adding list schema: $($list.Title)" -Type "Info"
+                Add-PnPListFoldersToSiteTemplate -Path $templatePath -List $list.Title -Recursive -ErrorAction Continue
+            }
+            catch {
+                Write-ProgressMessage "Failed to add list '$($list.Title)': $($_.Exception.Message)" -Type "Error"
+            }
+        }
+    }
+    else {
+        Get-PnPSiteTemplate @exportParams
+    }
     
     Write-ProgressMessage "Template structure exported successfully" -Type "Success"
     
-    # Add content if requested
-    if ($IncludeContent) {
+    # Add content if requested (and not StructureOnly)
+    if ($IncludeContent -and -not $StructureOnly) {
         Write-ProgressMessage "Adding content data to template (RowLimit: $ContentRowLimit)..." -Type "Info"
         
-        # Get all non-hidden lists
-        $lists = Get-PnPList | Where-Object { -not $_.Hidden -and $_.ItemCount -gt 0 }
+        # Filter to lists with content
+        $listsWithContent = $listsToExport | Where-Object { $_.ItemCount -gt 0 }
         
-        if ($lists.Count -eq 0) {
+        if ($listsWithContent.Count -eq 0) {
             Write-ProgressMessage "No lists with content found to export" -Type "Warning"
         }
         else {
-            Write-ProgressMessage "Found $($lists.Count) lists with content" -Type "Info"
+            Write-ProgressMessage "Found $($listsWithContent.Count) lists with content" -Type "Info"
             
-            foreach ($list in $lists) {
+            foreach ($list in $listsWithContent) {
                 try {
                     $listTitle = $list.Title
                     $itemCount = $list.ItemCount
@@ -419,6 +583,9 @@ try {
                 }
             }
         }
+    }
+    elseif ($StructureOnly) {
+        Write-ProgressMessage "Structure-only export - no content data will be included" -Type "Warning"
     }
     
     # Get file size
