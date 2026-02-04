@@ -6,6 +6,8 @@
 
 PowerShell scripts for exporting and importing complete SharePoint sites using PnP templates with **certificate-based authentication**.
 
+> **For Contributors**: See [DEVELOPER.md](DEVELOPER.md) for code standards, testing requirements, and contribution guidelines.
+
 ## Overview
 
 These scripts enable you to:
@@ -598,10 +600,12 @@ SharepointTemplateExport/
 │   ├── CONFIG-README.md                      # Configuration setup guide
 │   ├── MANUAL-APP-REGISTRATION.md            # Detailed app registration guide
 │   ├── USER-MAPPING-QUICK-REF.md             # Quick reference card (NEW)
-│   └── USER-MAPPING-TEST-GUIDE.md            # Testing scenarios (NEW)
+│   ├── USER-MAPPING-TEST-GUIDE.md            # Testing scenarios (NEW)
+│   └── DEVELOPER.md                          # Developer guide and contribution standards (NEW)
 └── LICENSE                                   # MIT License
-├── MANUAL-APP-REGISTRATION.md            # Detailed setup guide
-└── Configuration Issues
+```
+
+## Configuration Issues
 
 **Before running any scripts**, validate your configuration:
 ```powershell
@@ -794,12 +798,27 @@ Logs include:
 
 ## Support
 
-For detailed Azure AD app registration setup, see:
-- [MANUAL-APP-REGISTRATION.md](MANUAL-APP-REGISTRATION.md) - Complete step-by-step guide
+For detailed guides and documentation:
+- [MANUAL-APP-REGISTRATION.md](MANUAL-APP-REGISTRATION.md) - Complete Azure AD app setup
+- [CONFIG-README.md](CONFIG-README.md) - Configuration file guidance
+- [USER-MAPPING-QUICK-REF.md](USER-MAPPING-QUICK-REF.md) - User mapping quick reference
+- [USER-MAPPING-TEST-GUIDE.md](USER-MAPPING-TEST-GUIDE.md) - Testing scenarios
+- [DEVELOPER.md](DEVELOPER.md) - Contribution guidelines and code standards
+
+## Contributing
+
+We welcome contributions! Please see [DEVELOPER.md](DEVELOPER.md) for:
+- Code standards and style guide
+- Feature development workflow
+- Testing requirements
+- Pull request process
+- Security guidelines
 
 ## Version History
 
 - **v2.0** (February 2026)
+  - Cross-tenant user mapping functionality
+  - User extraction and validation tools
   - Certificate-based authentication (primary method)
   - Client secret fallback support
   - Improved error handling and logging
