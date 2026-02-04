@@ -287,120 +287,257 @@ function Show-SameTenantWorkflow {
                 # Export source site
                 Write-SubHeader "Step 1: Export Source Site"
                 
-                Write-Host "`nEnter source site URL: " -ForegroundColor Yellow -NoNewline
-                $sourceUrl = Read-Host
-                
-                if ([string]::IsNullOrWhiteSpace($sourceUrl)) {
-                    Write-Host "Source URL is required. Operation cancelled." -ForegroundColor Red
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
+                # Parameter collection menu
+                $exportParams = @{
+                    SourceUrl = ""
+                    IncludeContent = $true
+                    PreviewMode = $false
                 }
                 
-                Write-Host "`nInclude content (lists/libraries data)? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
-                $includeContent = Read-Host
-                $includeContentSwitch = if ($includeContent -eq 'N' -or $includeContent -eq 'n') { "" } else { "-IncludeContent" }
-                
-                Write-Host "`nRun in PREVIEW mode (no export, just show what would be included)? [Y/N] (default: N): " -ForegroundColor Yellow -NoNewline
-                $preview = Read-Host
-                $previewSwitch = if ($preview -eq 'Y' -or $preview -eq 'y') { "-Preview" } else { "" }
-                
-                if ($previewSwitch) {
-                    Write-Host "`nExecuting preview (no files will be created)..." -ForegroundColor Cyan
-                }
-                else {
-                    Write-Host "`nExecuting export..." -ForegroundColor Cyan
-                }
-                Write-Host "Command: " -ForegroundColor Gray -NoNewline
-                Write-Host ".\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl `"$sourceUrl`" -ConfigFile `"$ConfigFile`" $includeContentSwitch $previewSwitch" -ForegroundColor White
-                
-                if (Test-Path ".\Export-SharePointSiteTemplate.ps1") {
-                    try {
-                        if ($previewSwitch -and $includeContentSwitch) {
-                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $ConfigFile -IncludeContent -Preview
-                        }
-                        elseif ($previewSwitch) {
-                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $ConfigFile -Preview
-                        }
-                        elseif ($includeContentSwitch) {
-                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $ConfigFile -IncludeContent
-                        }
-                        else {
-                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $ConfigFile
-                        }
-                        
-                        # Try to find the most recent template (only if not preview mode)
-                        if (-not $previewSwitch) {
-                            $templates = Get-ChildItem "C:\PSReports\SiteTemplates\*.pnp" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
-                            if ($templates) {
-                                $exportedTemplate = $templates[0].FullName
-                                Write-Host "`n✓ Export completed!" -ForegroundColor Green
-                                Write-Host "Template saved: $exportedTemplate" -ForegroundColor Cyan
+                $paramMenuRunning = $true
+                while ($paramMenuRunning) {
+                    $contentStatus = if ($exportParams.IncludeContent) { "Yes" } else { "No" }
+                    $previewStatus = if ($exportParams.PreviewMode) { "Yes (no files created)" } else { "No (will create template)" }
+                    $urlDisplay = if ($exportParams.SourceUrl) { $exportParams.SourceUrl } else { "(not set)" }
+                    
+                    Write-Host "`n$('=' * 70)" -ForegroundColor Cyan
+                    Write-Host "  Export Configuration" -ForegroundColor Cyan
+                    Write-Host "$('=' * 70)" -ForegroundColor Cyan
+                    Write-Host "  Source URL:       $urlDisplay" -ForegroundColor White
+                    Write-Host "  Include Content:  $contentStatus" -ForegroundColor White
+                    Write-Host "  Preview Mode:     $previewStatus" -ForegroundColor White
+                    Write-Host "$('=' * 70)`n" -ForegroundColor Cyan
+                    
+                    $paramChoice = Show-Menu -Title "Configure Export Parameters" `
+                        -Options @(
+                            "Set source site URL",
+                            "Toggle include content (currently: $contentStatus)",
+                            "Toggle preview mode (currently: $previewStatus)",
+                            "Execute export",
+                            "Cancel and return to workflow menu"
+                        ) `
+                        -Prompt "Select option"
+                    
+                    switch ($paramChoice) {
+                        "1" {
+                            Write-Host "`nEnter source site URL: " -ForegroundColor Yellow -NoNewline
+                            $url = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($url)) {
+                                $exportParams.SourceUrl = $url
+                                Write-Host "✓ URL set" -ForegroundColor Green
                             }
+                            Start-Sleep -Milliseconds 500
                         }
-                        else {
-                            Write-Host "`n✓ Preview completed (no files created)" -ForegroundColor Green
+                        "2" {
+                            $exportParams.IncludeContent = -not $exportParams.IncludeContent
+                            Write-Host "`n✓ Include content toggled to: $(if ($exportParams.IncludeContent) { 'Yes' } else { 'No' })" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        "3" {
+                            $exportParams.PreviewMode = -not $exportParams.PreviewMode
+                            Write-Host "`n✓ Preview mode toggled to: $(if ($exportParams.PreviewMode) { 'Yes' } else { 'No' })" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        "4" {
+                            # Execute export
+                            if ([string]::IsNullOrWhiteSpace($exportParams.SourceUrl)) {
+                                Write-Host "`nERROR: Source URL is required" -ForegroundColor Red
+                                Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                continue
+                            }
+                            
+                            if ($exportParams.PreviewMode) {
+                                Write-Host "`nExecuting preview (no files will be created)..." -ForegroundColor Cyan
+                            }
+                            else {
+                                Write-Host "`nExecuting export..." -ForegroundColor Cyan
+                            }
+                            
+                            $includeContentSwitch = if ($exportParams.IncludeContent) { "-IncludeContent" } else { "" }
+                            $previewSwitch = if ($exportParams.PreviewMode) { "-Preview" } else { "" }
+                            
+                            Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                            Write-Host ".\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl `"$($exportParams.SourceUrl)`" -ConfigFile `"$ConfigFile`" $includeContentSwitch $previewSwitch" -ForegroundColor White
+                            
+                            if (Test-Path ".\Export-SharePointSiteTemplate.ps1") {
+                                try {
+                                    if ($exportParams.PreviewMode -and $exportParams.IncludeContent) {
+                                        & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $exportParams.SourceUrl -ConfigFile $ConfigFile -IncludeContent -Preview
+                                    }
+                                    elseif ($exportParams.PreviewMode) {
+                                        & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $exportParams.SourceUrl -ConfigFile $ConfigFile -Preview
+                                    }
+                                    elseif ($exportParams.IncludeContent) {
+                                        & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $exportParams.SourceUrl -ConfigFile $ConfigFile -IncludeContent
+                                    }
+                                    else {
+                                        & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $exportParams.SourceUrl -ConfigFile $ConfigFile
+                                    }
+                                    
+                                    if (-not $exportParams.PreviewMode) {
+                                        $templates = Get-ChildItem "C:\PSReports\SiteTemplates\*.pnp" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+                                        if ($templates) {
+                                            $exportedTemplate = $templates[0].FullName
+                                            Write-Host "`n✓ Export completed!" -ForegroundColor Green
+                                            Write-Host "Template saved: $exportedTemplate" -ForegroundColor Cyan
+                                        }
+                                    }
+                                    else {
+                                        Write-Host "`n✓ Preview completed (no files created)" -ForegroundColor Green
+                                    }
+                                }
+                                catch {
+                                    Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                                }
+                            }
+                            else {
+                                Write-Host "`nERROR: Export-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
+                            }
+                            
+                            Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                            $paramMenuRunning = $false
+                        }
+                        "5" {
+                            $paramMenuRunning = $false
+                        }
+                        "0" {
+                            $paramMenuRunning = $false
+                        }
+                        default {
+                            Write-Host "`nInvalid choice" -ForegroundColor Red
+                            Start-Sleep -Milliseconds 500
                         }
                     }
-                    catch {
-                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
-                    }
                 }
-                else {
-                    Write-Host "`nERROR: Export-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
-                }
-                
-                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
             "2" {
                 # Inspect template
                 Write-SubHeader "Step 2: Inspect Exported Template"
                 
-                if ($exportedTemplate) {
-                    Write-Host "`nMost recent template: " -ForegroundColor Cyan
-                    Write-Host $exportedTemplate -ForegroundColor White
-                    Write-Host "`nUse this template? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
-                    $useRecent = Read-Host
+                # Parameter collection menu
+                $inspectParams = @{
+                    TemplatePath = if ($exportedTemplate) { $exportedTemplate } else { "" }
+                }
+                
+                $paramMenuRunning = $true
+                while ($paramMenuRunning) {
+                    $pathDisplay = if ($inspectParams.TemplatePath) { $inspectParams.TemplatePath } else { "(not set)" }
                     
-                    if ($useRecent -eq 'N' -or $useRecent -eq 'n') {
-                        Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
-                        $templatePath = Read-Host
+                    Write-Host "`n$('=' * 70)" -ForegroundColor Cyan
+                    Write-Host "  Template Inspection Configuration" -ForegroundColor Cyan
+                    Write-Host "$('=' * 70)" -ForegroundColor Cyan
+                    Write-Host "  Template Path: $pathDisplay" -ForegroundColor White
+                    Write-Host "$('=' * 70)`n" -ForegroundColor Cyan
+                    
+                    $options = @(
+                        "Set template path"
+                    )
+                    if ($exportedTemplate) {
+                        $options += "Use most recent export: $(Split-Path $exportedTemplate -Leaf)"
                     }
-                    else {
-                        $templatePath = $exportedTemplate
+                    $options += @(
+                        "Execute inspection",
+                        "Cancel and return to workflow menu"
+                    )
+                    
+                    $paramChoice = Show-Menu -Title "Configure Template Inspection" `
+                        -Options $options `
+                        -Prompt "Select option"
+                    
+                    switch ($paramChoice) {
+                        "1" {
+                            Write-Host "`nEnter template path: " -ForegroundColor Yellow -NoNewline
+                            $path = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                                $inspectParams.TemplatePath = $path
+                                Write-Host "✓ Template path set" -ForegroundColor Green
+                            }
+                            Start-Sleep -Milliseconds 500
+                        }
+                        "2" {
+                            if ($exportedTemplate) {
+                                $inspectParams.TemplatePath = $exportedTemplate
+                                Write-Host "`n✓ Using most recent export" -ForegroundColor Green
+                                Start-Sleep -Milliseconds 500
+                            }
+                            else {
+                                # Execute inspection
+                                if ([string]::IsNullOrWhiteSpace($inspectParams.TemplatePath)) {
+                                    Write-Host "`nERROR: Template path is required" -ForegroundColor Red
+                                    Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                    continue
+                                }
+                                
+                                Write-Host "`nExecuting inspection..." -ForegroundColor Cyan
+                                Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                                Write-Host ".\Get-TemplateContent.ps1 -TemplatePath `"$($inspectParams.TemplatePath)`" -Detailed -ShowUsers -ShowContent" -ForegroundColor White
+                                
+                                if (Test-Path ".\Get-TemplateContent.ps1") {
+                                    try {
+                                        & ".\Get-TemplateContent.ps1" -TemplatePath $inspectParams.TemplatePath -Detailed -ShowUsers -ShowContent
+                                    }
+                                    catch {
+                                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                                    }
+                                }
+                                else {
+                                    Write-Host "`nERROR: Get-TemplateContent.ps1 not found" -ForegroundColor Red
+                                }
+                                
+                                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                $paramMenuRunning = $false
+                            }
+                        }
+                        "3" {
+                            if ($exportedTemplate) {
+                                # Execute inspection
+                                if ([string]::IsNullOrWhiteSpace($inspectParams.TemplatePath)) {
+                                    Write-Host "`nERROR: Template path is required" -ForegroundColor Red
+                                    Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                    continue
+                                }
+                                
+                                Write-Host "`nExecuting inspection..." -ForegroundColor Cyan
+                                Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                                Write-Host ".\Get-TemplateContent.ps1 -TemplatePath `"$($inspectParams.TemplatePath)`" -Detailed -ShowUsers -ShowContent" -ForegroundColor White
+                                
+                                if (Test-Path ".\Get-TemplateContent.ps1") {
+                                    try {
+                                        & ".\Get-TemplateContent.ps1" -TemplatePath $inspectParams.TemplatePath -Detailed -ShowUsers -ShowContent
+                                    }
+                                    catch {
+                                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                                    }
+                                }
+                                else {
+                                    Write-Host "`nERROR: Get-TemplateContent.ps1 not found" -ForegroundColor Red
+                                }
+                                
+                                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                $paramMenuRunning = $false
+                            }
+                            else {
+                                $paramMenuRunning = $false
+                            }
+                        }
+                        "4" {
+                            $paramMenuRunning = $false
+                        }
+                        "0" {
+                            $paramMenuRunning = $false
+                        }
+                        default {
+                            Write-Host "`nInvalid choice" -ForegroundColor Red
+                            Start-Sleep -Milliseconds 500
+                        }
                     }
                 }
-                else {
-                    Write-Host "`nEnter template path: " -ForegroundColor Yellow -NoNewline
-                    $templatePath = Read-Host
-                }
-                
-                if ([string]::IsNullOrWhiteSpace($templatePath)) {
-                    Write-Host "Template path is required. Operation cancelled." -ForegroundColor Red
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
-                }
-                
-                Write-Host "`nExecuting inspection..." -ForegroundColor Cyan
-                Write-Host "Command: " -ForegroundColor Gray -NoNewline
-                Write-Host ".\Get-TemplateContent.ps1 -TemplatePath `"$templatePath`" -Detailed -ShowUsers -ShowContent" -ForegroundColor White
-                
-                if (Test-Path ".\Get-TemplateContent.ps1") {
-                    try {
-                        & ".\Get-TemplateContent.ps1" -TemplatePath $templatePath -Detailed -ShowUsers -ShowContent
-                    }
-                    catch {
-                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
-                    }
-                }
-                else {
-                    Write-Host "`nERROR: Get-TemplateContent.ps1 not found" -ForegroundColor Red
-                }
-                
-                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
             "3" {
                 # Import to target
