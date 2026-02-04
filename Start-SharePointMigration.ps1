@@ -731,7 +731,7 @@ function Show-CrossTenantWorkflow {
         
         switch ($choice) {
             "1" {
-                # Export from source
+                # Export from source - menu-based parameter collection
                 Write-SubHeader "Step 1: Export from Source Tenant"
                 
                 if ($sourceDomain) {
@@ -739,177 +739,303 @@ function Show-CrossTenantWorkflow {
                     Write-Host $sourceDomain -ForegroundColor White
                 }
                 
-                Write-Host "`nEnter source site URL: " -ForegroundColor Yellow -NoNewline
-                $sourceUrl = Read-Host
-                
-                if ([string]::IsNullOrWhiteSpace($sourceUrl)) {
-                    Write-Host "Source URL is required. Operation cancelled." -ForegroundColor Red
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
+                # Initialize parameters
+                $exportParams = @{
+                    SourceUrl = ""
+                    IncludeContent = $true
+                    PreviewMode = $false
                 }
                 
-                Write-Host "`nInclude content? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
-                $includeContent = Read-Host
-                $includeContentSwitch = if ($includeContent -eq 'N' -or $includeContent -eq 'n') { "" } else { "-IncludeContent" }
-                
-                Write-Host "`nRun in PREVIEW mode (no export, just show what would be included)? [Y/N] (default: N): " -ForegroundColor Yellow -NoNewline
-                $preview = Read-Host
-                $previewSwitch = if ($preview -eq 'Y' -or $preview -eq 'y') { "-Preview" } else { "" }
-                
-                if ($previewSwitch) {
-                    Write-Host "`nExecuting preview (no files will be created)..." -ForegroundColor Cyan
-                }
-                else {
-                    Write-Host "`nExecuting export..." -ForegroundColor Cyan
-                }
-                Write-Host "Command: " -ForegroundColor Gray -NoNewline
-                Write-Host ".\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl `"$sourceUrl`" -ConfigFile `"$SourceConfigFile`" $includeContentSwitch $previewSwitch" -ForegroundColor White
-                
-                if (Test-Path ".\Export-SharePointSiteTemplate.ps1") {
-                    try {
-                        if ($previewSwitch -and $includeContentSwitch) {
-                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $SourceConfigFile -IncludeContent -Preview
-                        }
-                        elseif ($previewSwitch) {
-                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $SourceConfigFile -Preview
-                        }
-                        elseif ($includeContentSwitch) {
-                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $SourceConfigFile -IncludeContent
-                        }
-                        else {
-                            & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $sourceUrl -ConfigFile $SourceConfigFile
-                        }
-                        
-                        # Try to find the most recent template (only if not preview mode)
-                        if (-not $previewSwitch) {
-                            $templates = Get-ChildItem "C:\PSReports\SiteTemplates\*.pnp" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
-                            if ($templates) {
-                                $exportedTemplate = $templates[0].FullName
-                                Write-Host "`n✓ Export completed!" -ForegroundColor Green
-                                Write-Host "Template saved: $exportedTemplate" -ForegroundColor Cyan
+                $exportMenuRunning = $true
+                while ($exportMenuRunning) {
+                    Write-Host "`n═══ Current Configuration ═══" -ForegroundColor Cyan
+                    Write-Host "  Source Site URL: " -NoNewline -ForegroundColor Gray
+                    if ($exportParams.SourceUrl) {
+                        Write-Host $exportParams.SourceUrl -ForegroundColor White
+                    } else {
+                        Write-Host "(not set)" -ForegroundColor Yellow
+                    }
+                    Write-Host "  Include Content: " -NoNewline -ForegroundColor Gray
+                    Write-Host $(if ($exportParams.IncludeContent) { "Yes" } else { "No" }) -ForegroundColor White
+                    Write-Host "  Preview Mode: " -NoNewline -ForegroundColor Gray
+                    Write-Host $(if ($exportParams.PreviewMode) { "Yes (no files created)" } else { "No" }) -ForegroundColor White
+                    
+                    $exportChoice = Show-Menu -Title "Export Options" -Options @(
+                        "Set source site URL",
+                        "Toggle include content (currently: $(if ($exportParams.IncludeContent) { 'Yes' } else { 'No' }))",
+                        "Toggle preview mode (currently: $(if ($exportParams.PreviewMode) { 'Yes' } else { 'No' }))",
+                        "Execute export",
+                        "Cancel and return to workflow menu"
+                    )
+                    
+                    switch ($exportChoice) {
+                        "1" {
+                            Write-Host "`nEnter source site URL: " -ForegroundColor Yellow -NoNewline
+                            $url = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($url)) {
+                                $exportParams.SourceUrl = $url
                             }
                         }
-                        else {
-                            Write-Host "`n✓ Preview completed (no files created)" -ForegroundColor Green
+                        "2" {
+                            $exportParams.IncludeContent = -not $exportParams.IncludeContent
+                            Write-Host "`n✓ Include content toggled to: $(if ($exportParams.IncludeContent) { 'Yes' } else { 'No' })" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        "3" {
+                            $exportParams.PreviewMode = -not $exportParams.PreviewMode
+                            Write-Host "`n✓ Preview mode toggled to: $(if ($exportParams.PreviewMode) { 'Yes' } else { 'No' })" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        "4" {
+                            # Execute
+                            if ([string]::IsNullOrWhiteSpace($exportParams.SourceUrl)) {
+                                Write-Host "`n✗ Source URL is required" -ForegroundColor Red
+                                Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                continue
+                            }
+                            
+                            if ($exportParams.PreviewMode) {
+                                Write-Host "`nExecuting preview (no files will be created)..." -ForegroundColor Cyan
+                            }
+                            else {
+                                Write-Host "`nExecuting export..." -ForegroundColor Cyan
+                            }
+                            
+                            $cmdPreview = if ($exportParams.PreviewMode) { " -Preview" } else { "" }
+                            $cmdContent = if ($exportParams.IncludeContent) { " -IncludeContent" } else { "" }
+                            Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                            Write-Host ".\Export-SharePointSiteTemplate.ps1 -SourceSiteUrl `"$($exportParams.SourceUrl)`" -ConfigFile `"$SourceConfigFile`"$cmdContent$cmdPreview" -ForegroundColor White
+                            
+                            if (Test-Path ".\Export-SharePointSiteTemplate.ps1") {
+                                try {
+                                    if ($exportParams.PreviewMode -and $exportParams.IncludeContent) {
+                                        & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $exportParams.SourceUrl -ConfigFile $SourceConfigFile -IncludeContent -Preview
+                                    }
+                                    elseif ($exportParams.PreviewMode) {
+                                        & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $exportParams.SourceUrl -ConfigFile $SourceConfigFile -Preview
+                                    }
+                                    elseif ($exportParams.IncludeContent) {
+                                        & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $exportParams.SourceUrl -ConfigFile $SourceConfigFile -IncludeContent
+                                    }
+                                    else {
+                                        & ".\Export-SharePointSiteTemplate.ps1" -SourceSiteUrl $exportParams.SourceUrl -ConfigFile $SourceConfigFile
+                                    }
+                                    
+                                    if (-not $exportParams.PreviewMode) {
+                                        $templates = Get-ChildItem "C:\PSReports\SiteTemplates\*.pnp" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending
+                                        if ($templates) {
+                                            $exportedTemplate = $templates[0].FullName
+                                            Write-Host "`n✓ Export completed!" -ForegroundColor Green
+                                            Write-Host "Template saved: $exportedTemplate" -ForegroundColor Cyan
+                                        }
+                                    }
+                                    else {
+                                        Write-Host "`n✓ Preview completed (no files created)" -ForegroundColor Green
+                                    }
+                                }
+                                catch {
+                                    Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                                }
+                            }
+                            else {
+                                Write-Host "`nERROR: Export-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
+                            }
+                            
+                            Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                            $exportMenuRunning = $false
+                        }
+                        "5" {
+                            # Cancel and return
+                            $exportMenuRunning = $false
                         }
                     }
-                    catch {
-                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
-                    }
                 }
-                else {
-                    Write-Host "`nERROR: Export-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
-                }
-                
-                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
             "2" {
-                # Generate user mapping
+                # Generate user mapping - menu-based parameter collection
                 Write-SubHeader "Step 2: Generate User Mapping Template"
                 
-                if ($exportedTemplate) {
-                    Write-Host "`nMost recent template: " -ForegroundColor Cyan
-                    Write-Host $exportedTemplate -ForegroundColor White
-                    Write-Host "`nUse this template? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
-                    $useRecent = Read-Host
-                    
-                    if ($useRecent -eq 'N' -or $useRecent -eq 'n') {
-                        Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
-                        $templatePath = Read-Host
+                # Initialize parameters
+                $mappingParams = @{
+                    TemplatePath = if ($exportedTemplate) { $exportedTemplate } else { "" }
+                    OutputPath = "user-mapping.csv"
+                }
+                
+                $mappingMenuRunning = $true
+                while ($mappingMenuRunning) {
+                    Write-Host "`n═══ Current Configuration ═══" -ForegroundColor Cyan
+                    Write-Host "  Template Path: " -NoNewline -ForegroundColor Gray
+                    if ($mappingParams.TemplatePath) {
+                        Write-Host $mappingParams.TemplatePath -ForegroundColor White
+                    } else {
+                        Write-Host "(not set)" -ForegroundColor Yellow
                     }
-                    else {
-                        $templatePath = $exportedTemplate
-                    }
-                }
-                else {
-                    Write-Host "`nEnter template path: " -ForegroundColor Yellow -NoNewline
-                    $templatePath = Read-Host
-                }
-                
-                if ([string]::IsNullOrWhiteSpace($templatePath)) {
-                    Write-Host "Template path is required. Operation cancelled." -ForegroundColor Red
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
-                }
-                
-                Write-Host "`nOutput CSV path (default: user-mapping.csv): " -ForegroundColor Yellow -NoNewline
-                $outputPath = Read-Host
-                if ([string]::IsNullOrWhiteSpace($outputPath)) {
-                    $outputPath = "user-mapping.csv"
-                }
-                $userMappingFile = $outputPath
-                
-                Write-Host "`nExecuting user mapping generation..." -ForegroundColor Cyan
-                Write-Host "Command: " -ForegroundColor Gray -NoNewline
-                Write-Host ".\New-UserMappingTemplate.ps1 -TemplatePath `"$templatePath`" -OutputPath `"$outputPath`"" -ForegroundColor White
-                
-                if (Test-Path ".\New-UserMappingTemplate.ps1") {
-                    try {
-                        & ".\New-UserMappingTemplate.ps1" -TemplatePath $templatePath -OutputPath $outputPath
-                        Write-Host "`n✓ User mapping template created!" -ForegroundColor Green
-                        Write-Host "File: $outputPath" -ForegroundColor Cyan
-                        
-                        if ($sourceDomain -and $targetDomain) {
-                            Write-Host "`nℹ️  TIP: Update TargetUser column in CSV:" -ForegroundColor Yellow
-                            Write-Host "   Replace '@$sourceDomain' with '@$targetDomain'" -ForegroundColor White
-                        }
-                    }
-                    catch {
-                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
-                    }
-                }
-                else {
-                    Write-Host "`nERROR: New-UserMappingTemplate.ps1 not found" -ForegroundColor Red
-                }
-                
-                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-            }
-            "3" {
-                # Edit user mapping
-                Write-SubHeader "Step 3: Edit User Mapping CSV"
-                
-                Write-Host "`nUser mapping file (default: $userMappingFile): " -ForegroundColor Yellow -NoNewline
-                $mappingPath = Read-Host
-                if ([string]::IsNullOrWhiteSpace($mappingPath)) {
-                    $mappingPath = $userMappingFile
-                }
-                
-                if (Test-Path $mappingPath) {
-                    Write-Host "`nOpening $mappingPath in default editor..." -ForegroundColor Cyan
+                    Write-Host "  Output CSV Path: " -NoNewline -ForegroundColor Gray
+                    Write-Host $mappingParams.OutputPath -ForegroundColor White
                     
                     if ($sourceDomain -and $targetDomain) {
-                        Write-Host "`nREMINDER: Update TargetUser column:" -ForegroundColor Yellow
-                        Write-Host "  Source domain: @$sourceDomain" -ForegroundColor White
-                        Write-Host "  Target domain: @$targetDomain" -ForegroundColor White
-                        Write-Host "`nExample mappings:" -ForegroundColor Yellow
-                        Write-Host "  john.smith@$sourceDomain → john.smith@$targetDomain" -ForegroundColor White
-                        Write-Host "  admin@$sourceDomain → it.admin@$targetDomain" -ForegroundColor White
+                        Write-Host "`n  Domain mapping hint: " -ForegroundColor Gray
+                        Write-Host "    Source: @$sourceDomain" -ForegroundColor Cyan
+                        Write-Host "    Target: @$targetDomain" -ForegroundColor Cyan
                     }
                     
-                    try {
-                        Start-Process $mappingPath
-                        Write-Host "`n✓ File opened in default application" -ForegroundColor Green
-                        Write-Host "Edit the file and save when complete." -ForegroundColor Cyan
+                    $mappingOptions = @(
+                        "Set template path"
+                    )
+                    if ($exportedTemplate) {
+                        $mappingOptions += "Use most recent export: $(Split-Path $exportedTemplate -Leaf)"
                     }
-                    catch {
-                        Write-Host "`nERROR: Could not open file: $($_.Exception.Message)" -ForegroundColor Red
-                        Write-Host "Please open manually: $mappingPath" -ForegroundColor Yellow
+                    $mappingOptions += @(
+                        "Set output CSV path",
+                        "Execute generation",
+                        "Cancel and return to workflow menu"
+                    )
+                    
+                    $mappingChoice = Show-Menu -Title "User Mapping Generation Options" -Options $mappingOptions
+                    
+                    switch ($mappingChoice) {
+                        "1" {
+                            Write-Host "`nEnter template path: " -ForegroundColor Yellow -NoNewline
+                            $path = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                                $mappingParams.TemplatePath = $path
+                            }
+                        }
+                        { $_ -eq "2" -and $exportedTemplate } {
+                            $mappingParams.TemplatePath = $exportedTemplate
+                            Write-Host "`n✓ Using most recent export" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        { ($_ -eq "2" -and -not $exportedTemplate) -or ($_ -eq "3" -and $exportedTemplate) } {
+                            Write-Host "`nOutput CSV path (press Enter for default: user-mapping.csv): " -ForegroundColor Yellow -NoNewline
+                            $path = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                                $mappingParams.OutputPath = $path
+                            }
+                        }
+                        { ($_ -eq "3" -and -not $exportedTemplate) -or ($_ -eq "4" -and $exportedTemplate) } {
+                            # Execute
+                            if ([string]::IsNullOrWhiteSpace($mappingParams.TemplatePath)) {
+                                Write-Host "`n✗ Template path is required" -ForegroundColor Red
+                                Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                continue
+                            }
+                            
+                            Write-Host "`nExecuting user mapping generation..." -ForegroundColor Cyan
+                            Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                            Write-Host ".\New-UserMappingTemplate.ps1 -TemplatePath `"$($mappingParams.TemplatePath)`" -OutputPath `"$($mappingParams.OutputPath)`"" -ForegroundColor White
+                            
+                            if (Test-Path ".\New-UserMappingTemplate.ps1") {
+                                try {
+                                    & ".\New-UserMappingTemplate.ps1" -TemplatePath $mappingParams.TemplatePath -OutputPath $mappingParams.OutputPath
+                                    $userMappingFile = $mappingParams.OutputPath
+                                    Write-Host "`n✓ User mapping template created!" -ForegroundColor Green
+                                    Write-Host "File: $userMappingFile" -ForegroundColor Cyan
+                                    
+                                    if ($sourceDomain -and $targetDomain) {
+                                        Write-Host "`nℹ️  TIP: Update TargetUser column in CSV:" -ForegroundColor Yellow
+                                        Write-Host "   Replace '@$sourceDomain' with '@$targetDomain'" -ForegroundColor White
+                                    }
+                                }
+                                catch {
+                                    Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                                }
+                            }
+                            else {
+                                Write-Host "`nERROR: New-UserMappingTemplate.ps1 not found" -ForegroundColor Red
+                            }
+                            
+                            Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                            $mappingMenuRunning = $false
+                        }
+                        { ($_ -eq "4" -and -not $exportedTemplate) -or ($_ -eq "5" -and $exportedTemplate) } {
+                            # Cancel and return
+                            $mappingMenuRunning = $false
+                        }
                     }
                 }
-                else {
-                    Write-Host "`nERROR: File not found: $mappingPath" -ForegroundColor Red
-                    Write-Host "Generate the user mapping template first (option 2)" -ForegroundColor Yellow
-                }
+            }
+            "3" {
+                # Edit user mapping - menu-based with confirmation
+                Write-SubHeader "Step 3: Edit User Mapping CSV"
                 
-                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                # Initialize parameters
+                $editMappingPath = $userMappingFile
+                
+                $editMenuRunning = $true
+                while ($editMenuRunning) {
+                    Write-Host "`n═══ Current Configuration ═══" -ForegroundColor Cyan
+                    Write-Host "  Mapping File: " -NoNewline -ForegroundColor Gray
+                    Write-Host $editMappingPath -ForegroundColor White
+                    Write-Host "  File Exists: " -NoNewline -ForegroundColor Gray
+                    if (Test-Path $editMappingPath) {
+                        Write-Host "Yes" -ForegroundColor Green
+                    } else {
+                        Write-Host "No" -ForegroundColor Red
+                    }
+                    
+                    if ($sourceDomain -and $targetDomain) {
+                        Write-Host "`n  Domain mapping reminder: " -ForegroundColor Gray
+                        Write-Host "    Source: @$sourceDomain" -ForegroundColor Cyan
+                        Write-Host "    Target: @$targetDomain" -ForegroundColor Cyan
+                        Write-Host "`n  Example mappings:" -ForegroundColor Gray
+                        Write-Host "    john.smith@$sourceDomain → john.smith@$targetDomain" -ForegroundColor White
+                        Write-Host "    admin@$sourceDomain → it.admin@$targetDomain" -ForegroundColor White
+                    }
+                    
+                    $editChoice = Show-Menu -Title "Edit User Mapping Options" -Options @(
+                        "Set mapping file path",
+                        "Open file in default editor",
+                        "Cancel and return to workflow menu"
+                    )
+                    
+                    switch ($editChoice) {
+                        "1" {
+                            Write-Host "`nMapping file path (press Enter for default: $userMappingFile): " -ForegroundColor Yellow -NoNewline
+                            $path = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                                $editMappingPath = $path
+                            }
+                        }
+                        "2" {
+                            # Open file
+                            if (Test-Path $editMappingPath) {
+                                Write-Host "`nOpening $editMappingPath in default editor..." -ForegroundColor Cyan
+                                
+                                try {
+                                    Start-Process $editMappingPath
+                                    Write-Host "`n✓ File opened in default application" -ForegroundColor Green
+                                    Write-Host "Edit the file and save when complete." -ForegroundColor Cyan
+                                }
+                                catch {
+                                    Write-Host "`nERROR: Could not open file: $($_.Exception.Message)" -ForegroundColor Red
+                                    Write-Host "Please open manually: $editMappingPath" -ForegroundColor Yellow
+                                }
+                                
+                                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                            }
+                            else {
+                                Write-Host "`n✗ File not found: $editMappingPath" -ForegroundColor Red
+                                Write-Host "Generate the user mapping template first (option 2)" -ForegroundColor Yellow
+                                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                            }
+                            $editMenuRunning = $false
+                        }
+                        "3" {
+                            # Cancel and return
+                            $editMenuRunning = $false
+                        }
+                    }
+                }
             }
             "4" {
-                # Validate users
+                # Validate users - menu-based parameter collection
                 Write-SubHeader "Step 4: Validate Target Users"
                 
                 if ($targetDomain) {
@@ -917,79 +1043,132 @@ function Show-CrossTenantWorkflow {
                     Write-Host $targetDomain -ForegroundColor White
                 }
                 
-                Write-Host "`nEnter target site URL: " -ForegroundColor Yellow -NoNewline
-                $targetUrl = Read-Host
-                
-                if ([string]::IsNullOrWhiteSpace($targetUrl)) {
-                    Write-Host "Target URL is required. Operation cancelled." -ForegroundColor Red
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
+                # Initialize parameters
+                $validateParams = @{
+                    TargetUrl = ""
+                    TemplatePath = if ($exportedTemplate) { $exportedTemplate } else { "" }
+                    MappingFile = $userMappingFile
                 }
                 
-                if ($exportedTemplate) {
-                    Write-Host "`nMost recent template: " -ForegroundColor Cyan
-                    Write-Host $exportedTemplate -ForegroundColor White
-                    Write-Host "`nUse this template? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
-                    $useRecent = Read-Host
+                $validateMenuRunning = $true
+                while ($validateMenuRunning) {
+                    Write-Host "`n═══ Current Configuration ═══" -ForegroundColor Cyan
+                    Write-Host "  Target Site URL: " -NoNewline -ForegroundColor Gray
+                    if ($validateParams.TargetUrl) {
+                        Write-Host $validateParams.TargetUrl -ForegroundColor White
+                    } else {
+                        Write-Host "(not set)" -ForegroundColor Yellow
+                    }
+                    Write-Host "  Template Path: " -NoNewline -ForegroundColor Gray
+                    if ($validateParams.TemplatePath) {
+                        Write-Host $validateParams.TemplatePath -ForegroundColor White
+                    } else {
+                        Write-Host "(not set)" -ForegroundColor Yellow
+                    }
+                    Write-Host "  User Mapping File: " -NoNewline -ForegroundColor Gray
+                    Write-Host $validateParams.MappingFile -ForegroundColor White
+                    Write-Host "  Mapping File Exists: " -NoNewline -ForegroundColor Gray
+                    if (Test-Path $validateParams.MappingFile) {
+                        Write-Host "Yes" -ForegroundColor Green
+                    } else {
+                        Write-Host "No" -ForegroundColor Red
+                    }
                     
-                    if ($useRecent -eq 'N' -or $useRecent -eq 'n') {
-                        Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
-                        $templatePath = Read-Host
+                    $validateOptions = @(
+                        "Set target site URL",
+                        "Set template path"
+                    )
+                    if ($exportedTemplate) {
+                        $validateOptions += "Use most recent export: $(Split-Path $exportedTemplate -Leaf)"
                     }
-                    else {
-                        $templatePath = $exportedTemplate
+                    $validateOptions += @(
+                        "Set user mapping file path",
+                        "Execute validation",
+                        "Cancel and return to workflow menu"
+                    )
+                    
+                    $validateChoice = Show-Menu -Title "User Validation Options" -Options $validateOptions
+                    
+                    switch ($validateChoice) {
+                        "1" {
+                            Write-Host "`nEnter target site URL: " -ForegroundColor Yellow -NoNewline
+                            $url = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($url)) {
+                                $validateParams.TargetUrl = $url
+                            }
+                        }
+                        "2" {
+                            Write-Host "`nEnter template path: " -ForegroundColor Yellow -NoNewline
+                            $path = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                                $validateParams.TemplatePath = $path
+                            }
+                        }
+                        { $_ -eq "3" -and $exportedTemplate } {
+                            $validateParams.TemplatePath = $exportedTemplate
+                            Write-Host "`n✓ Using most recent export" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        { ($_ -eq "3" -and -not $exportedTemplate) -or ($_ -eq "4" -and $exportedTemplate) } {
+                            Write-Host "`nMapping file path (press Enter for default: $userMappingFile): " -ForegroundColor Yellow -NoNewline
+                            $path = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                                $validateParams.MappingFile = $path
+                            }
+                        }
+                        { ($_ -eq "4" -and -not $exportedTemplate) -or ($_ -eq "5" -and $exportedTemplate) } {
+                            # Execute validation
+                            if ([string]::IsNullOrWhiteSpace($validateParams.TargetUrl)) {
+                                Write-Host "`n✗ Target URL is required" -ForegroundColor Red
+                                Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                continue
+                            }
+                            if ([string]::IsNullOrWhiteSpace($validateParams.TemplatePath)) {
+                                Write-Host "`n✗ Template path is required" -ForegroundColor Red
+                                Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                continue
+                            }
+                            if (-not (Test-Path $validateParams.MappingFile)) {
+                                Write-Host "`n✗ User mapping file not found: $($validateParams.MappingFile)" -ForegroundColor Red
+                                Write-Host "Generate and edit the mapping file first (options 2 & 3)" -ForegroundColor Yellow
+                                Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                continue
+                            }
+                            
+                            Write-Host "`nValidating users in target tenant..." -ForegroundColor Cyan
+                            Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                            Write-Host ".\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl `"$($validateParams.TargetUrl)`" -TemplatePath `"$($validateParams.TemplatePath)`" -UserMappingFile `"$($validateParams.MappingFile)`" -ConfigFile `"$TargetConfigFile`" -ValidateUsersOnly" -ForegroundColor White
+                            
+                            if (Test-Path ".\Import-SharePointSiteTemplate.ps1") {
+                                try {
+                                    & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $validateParams.TargetUrl -TemplatePath $validateParams.TemplatePath -UserMappingFile $validateParams.MappingFile -ConfigFile $TargetConfigFile -ValidateUsersOnly
+                                    Write-Host "`n✓ User validation completed!" -ForegroundColor Green
+                                    Write-Host "If any users are invalid, update the CSV and re-validate." -ForegroundColor Cyan
+                                }
+                                catch {
+                                    Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                                }
+                            }
+                            else {
+                                Write-Host "`nERROR: Import-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
+                            }
+                            
+                            Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                            $validateMenuRunning = $false
+                        }
+                        { ($_ -eq "5" -and -not $exportedTemplate) -or ($_ -eq "6" -and $exportedTemplate) } {
+                            # Cancel and return
+                            $validateMenuRunning = $false
+                        }
                     }
                 }
-                else {
-                    Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
-                    $templatePath = Read-Host
-                }
-                
-                if ([string]::IsNullOrWhiteSpace($templatePath)) {
-                    Write-Host "Template path is required. Operation cancelled." -ForegroundColor Red
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
-                }
-                
-                Write-Host "`nUser mapping file (default: $userMappingFile): " -ForegroundColor Yellow -NoNewline
-                $mappingPath = Read-Host
-                if ([string]::IsNullOrWhiteSpace($mappingPath)) {
-                    $mappingPath = $userMappingFile
-                }
-                
-                if (-not (Test-Path $mappingPath)) {
-                    Write-Host "`nERROR: User mapping file not found: $mappingPath" -ForegroundColor Red
-                    Write-Host "Generate and edit the mapping file first (options 2 & 3)" -ForegroundColor Yellow
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
-                }
-                
-                Write-Host "`nValidating users in target tenant..." -ForegroundColor Cyan
-                Write-Host "Command: " -ForegroundColor Gray -NoNewline
-                Write-Host ".\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl `"$targetUrl`" -TemplatePath `"$templatePath`" -UserMappingFile `"$mappingPath`" -ConfigFile `"$TargetConfigFile`" -ValidateUsersOnly" -ForegroundColor White
-                
-                if (Test-Path ".\Import-SharePointSiteTemplate.ps1") {
-                    try {
-                        & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $targetUrl -TemplatePath $templatePath -UserMappingFile $mappingPath -ConfigFile $TargetConfigFile -ValidateUsersOnly
-                        Write-Host "`n✓ User validation completed!" -ForegroundColor Green
-                        Write-Host "If any users are invalid, update the CSV and re-validate." -ForegroundColor Cyan
-                    }
-                    catch {
-                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
-                    }
-                }
-                else {
-                    Write-Host "`nERROR: Import-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
-                }
-                
-                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
             "5" {
-                # Import with user mapping
+                # Import with user mapping - menu-based parameter collection
                 Write-SubHeader "Step 5: Import to Target Tenant"
                 
                 Write-Host "`n⚠️  PREREQUISITES:" -ForegroundColor Yellow
@@ -1001,90 +1180,144 @@ function Show-CrossTenantWorkflow {
                     Write-Host $targetDomain -ForegroundColor White
                 }
                 
-                Write-Host "`nEnter target site URL: " -ForegroundColor Yellow -NoNewline
-                $targetUrl = Read-Host
-                
-                if ([string]::IsNullOrWhiteSpace($targetUrl)) {
-                    Write-Host "Target URL is required. Operation cancelled." -ForegroundColor Red
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
+                # Initialize parameters
+                $crossTenantImportParams = @{
+                    TargetUrl = ""
+                    TemplatePath = if ($exportedTemplate) { $exportedTemplate } else { "" }
+                    MappingFile = $userMappingFile
                 }
                 
-                if ($exportedTemplate) {
-                    Write-Host "`nMost recent template: " -ForegroundColor Cyan
-                    Write-Host $exportedTemplate -ForegroundColor White
-                    Write-Host "`nUse this template? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
-                    $useRecent = Read-Host
+                $crossTenantImportMenuRunning = $true
+                while ($crossTenantImportMenuRunning) {
+                    Write-Host "`n═══ Current Configuration ═══" -ForegroundColor Cyan
+                    Write-Host "  Target Site URL: " -NoNewline -ForegroundColor Gray
+                    if ($crossTenantImportParams.TargetUrl) {
+                        Write-Host $crossTenantImportParams.TargetUrl -ForegroundColor White
+                    } else {
+                        Write-Host "(not set)" -ForegroundColor Yellow
+                    }
+                    Write-Host "  Template Path: " -NoNewline -ForegroundColor Gray
+                    if ($crossTenantImportParams.TemplatePath) {
+                        Write-Host $crossTenantImportParams.TemplatePath -ForegroundColor White
+                    } else {
+                        Write-Host "(not set)" -ForegroundColor Yellow
+                    }
+                    Write-Host "  User Mapping File: " -NoNewline -ForegroundColor Gray
+                    Write-Host $crossTenantImportParams.MappingFile -ForegroundColor White
+                    Write-Host "  Mapping File Exists: " -NoNewline -ForegroundColor Gray
+                    if (Test-Path $crossTenantImportParams.MappingFile) {
+                        Write-Host "Yes" -ForegroundColor Green
+                    } else {
+                        Write-Host "No" -ForegroundColor Red
+                    }
                     
-                    if ($useRecent -eq 'N' -or $useRecent -eq 'n') {
-                        Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
-                        $templatePath = Read-Host
+                    $crossTenantImportOptions = @(
+                        "Set target site URL",
+                        "Set template path"
+                    )
+                    if ($exportedTemplate) {
+                        $crossTenantImportOptions += "Use most recent export: $(Split-Path $exportedTemplate -Leaf)"
                     }
-                    else {
-                        $templatePath = $exportedTemplate
+                    $crossTenantImportOptions += @(
+                        "Set user mapping file path",
+                        "Execute import (requires confirmation)",
+                        "Cancel and return to workflow menu"
+                    )
+                    
+                    $crossTenantImportChoice = Show-Menu -Title "Cross-Tenant Import Options" -Options $crossTenantImportOptions
+                    
+                    switch ($crossTenantImportChoice) {
+                        "1" {
+                            Write-Host "`nEnter target site URL: " -ForegroundColor Yellow -NoNewline
+                            $url = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($url)) {
+                                $crossTenantImportParams.TargetUrl = $url
+                            }
+                        }
+                        "2" {
+                            Write-Host "`nEnter template path: " -ForegroundColor Yellow -NoNewline
+                            $path = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                                $crossTenantImportParams.TemplatePath = $path
+                            }
+                        }
+                        { $_ -eq "3" -and $exportedTemplate } {
+                            $crossTenantImportParams.TemplatePath = $exportedTemplate
+                            Write-Host "`n✓ Using most recent export" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        { ($_ -eq "3" -and -not $exportedTemplate) -or ($_ -eq "4" -and $exportedTemplate) } {
+                            Write-Host "`nMapping file path (press Enter for default: $userMappingFile): " -ForegroundColor Yellow -NoNewline
+                            $path = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                                $crossTenantImportParams.MappingFile = $path
+                            }
+                        }
+                        { ($_ -eq "4" -and -not $exportedTemplate) -or ($_ -eq "5" -and $exportedTemplate) } {
+                            # Execute import with full validation and confirmation
+                            if ([string]::IsNullOrWhiteSpace($crossTenantImportParams.TargetUrl)) {
+                                Write-Host "`n✗ Target URL is required" -ForegroundColor Red
+                                Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                continue
+                            }
+                            if ([string]::IsNullOrWhiteSpace($crossTenantImportParams.TemplatePath)) {
+                                Write-Host "`n✗ Template path is required" -ForegroundColor Red
+                                Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                continue
+                            }
+                            if (-not (Test-Path $crossTenantImportParams.MappingFile)) {
+                                Write-Host "`n✗ User mapping file not found: $($crossTenantImportParams.MappingFile)" -ForegroundColor Red
+                                Write-Host "Generate and edit the mapping file first (options 2 & 3)" -ForegroundColor Yellow
+                                Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                continue
+                            }
+                            
+                            Write-Host "`n⚠️  FINAL CONFIRMATION" -ForegroundColor Yellow
+                            Write-Host "About to import to: $($crossTenantImportParams.TargetUrl)" -ForegroundColor White
+                            Write-Host "From template: $($crossTenantImportParams.TemplatePath)" -ForegroundColor White
+                            Write-Host "With user mapping: $($crossTenantImportParams.MappingFile)" -ForegroundColor White
+                            Write-Host "`nThis will modify the target site!" -ForegroundColor Yellow
+                            Write-Host "Proceed with import? [Y/N]: " -ForegroundColor Yellow -NoNewline
+                            $confirm = Read-Host
+                            
+                            if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+                                Write-Host "Import cancelled." -ForegroundColor Cyan
+                                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                continue
+                            }
+                            
+                            Write-Host "`nExecuting import with user mapping..." -ForegroundColor Cyan
+                            Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                            Write-Host ".\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl `"$($crossTenantImportParams.TargetUrl)`" -TemplatePath `"$($crossTenantImportParams.TemplatePath)`" -UserMappingFile `"$($crossTenantImportParams.MappingFile)`" -ConfigFile `"$TargetConfigFile`" -IgnoreDuplicateDataRowErrors" -ForegroundColor White
+                            
+                            if (Test-Path ".\Import-SharePointSiteTemplate.ps1") {
+                                try {
+                                    & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $crossTenantImportParams.TargetUrl -TemplatePath $crossTenantImportParams.TemplatePath -UserMappingFile $crossTenantImportParams.MappingFile -ConfigFile $TargetConfigFile -IgnoreDuplicateDataRowErrors
+                                    Write-Host "`n✓ Import completed!" -ForegroundColor Green
+                                    Write-Host "Cross-tenant migration finished. Review logs for details." -ForegroundColor Cyan
+                                }
+                                catch {
+                                    Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                                }
+                            }
+                            else {
+                                Write-Host "`nERROR: Import-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
+                            }
+                            
+                            Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                            $crossTenantImportMenuRunning = $false
+                        }
+                        { ($_ -eq "5" -and -not $exportedTemplate) -or ($_ -eq "6" -and $exportedTemplate) } {
+                            # Cancel and return
+                            $crossTenantImportMenuRunning = $false
+                        }
                     }
                 }
-                else {
-                    Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
-                    $templatePath = Read-Host
-                }
-                
-                if ([string]::IsNullOrWhiteSpace($templatePath)) {
-                    Write-Host "Template path is required. Operation cancelled." -ForegroundColor Red
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
-                }
-                
-                Write-Host "`nUser mapping file (default: $userMappingFile): " -ForegroundColor Yellow -NoNewline
-                $mappingPath = Read-Host
-                if ([string]::IsNullOrWhiteSpace($mappingPath)) {
-                    $mappingPath = $userMappingFile
-                }
-                
-                if (-not (Test-Path $mappingPath)) {
-                    Write-Host "`nERROR: User mapping file not found: $mappingPath" -ForegroundColor Red
-                    Write-Host "Generate and edit the mapping file first (options 2 & 3)" -ForegroundColor Yellow
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
-                }
-                
-                Write-Host "`n⚠️  FINAL CONFIRMATION" -ForegroundColor Yellow
-                Write-Host "About to import to: $targetUrl" -ForegroundColor White
-                Write-Host "From template: $templatePath" -ForegroundColor White
-                Write-Host "With user mapping: $mappingPath" -ForegroundColor White
-                Write-Host "`nProceed with import? [Y/N]: " -ForegroundColor Yellow -NoNewline
-                $confirm = Read-Host
-                
-                if ($confirm -ne 'Y' -and $confirm -ne 'y') {
-                    Write-Host "Import cancelled." -ForegroundColor Cyan
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
-                }
-                
-                Write-Host "`nExecuting import with user mapping..." -ForegroundColor Cyan
-                Write-Host "Command: " -ForegroundColor Gray -NoNewline
-                Write-Host ".\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl `"$targetUrl`" -TemplatePath `"$templatePath`" -UserMappingFile `"$mappingPath`" -ConfigFile `"$TargetConfigFile`" -IgnoreDuplicateDataRowErrors" -ForegroundColor White
-                
-                if (Test-Path ".\Import-SharePointSiteTemplate.ps1") {
-                    try {
-                        & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $targetUrl -TemplatePath $templatePath -UserMappingFile $mappingPath -ConfigFile $TargetConfigFile -IgnoreDuplicateDataRowErrors
-                        Write-Host "`n✓ Import completed!" -ForegroundColor Green
-                        Write-Host "Cross-tenant migration finished. Review logs for details." -ForegroundColor Cyan
-                    }
-                    catch {
-                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
-                    }
-                }
-                else {
-                    Write-Host "`nERROR: Import-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
-                }
-                
-                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
             "6" {
                 # View reference commands
