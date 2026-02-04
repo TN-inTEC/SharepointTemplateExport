@@ -117,6 +117,13 @@ This will check:
 - Certificate exists and hasn't expired
 - GUIDs are properly formatted
 
+**For cross-tenant migrations, validate both configurations:**
+```powershell
+.\Test-Configuration.ps1 -SourceConfigFile "app-config-source.json" -TargetConfigFile "app-config-target.json"
+```
+
+This will check both source and target configurations and show a side-by-side comparison to ensure you're ready for cross-tenant migration.
+
 ```json
 {
   "tenantId": "YOUR-TENANT-ID-GUID",

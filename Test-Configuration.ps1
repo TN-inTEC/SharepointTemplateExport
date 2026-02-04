@@ -6,25 +6,50 @@
     Tests configuration files for completeness and validity before running
     export/import operations. Checks for required fields, certificate availability,
     and provides helpful guidance for fixing issues.
+    
+    Supports validating multiple configuration files for cross-tenant migrations.
 
 .PARAMETER ConfigFile
     Path to the configuration file to validate. Default: app-config.json
 
+.PARAMETER SourceConfigFile
+    Path to the source tenant configuration file for cross-tenant validation.
+    If provided with -TargetConfigFile, validates both configurations.
+
+.PARAMETER TargetConfigFile
+    Path to the target tenant configuration file for cross-tenant validation.
+    Must be used with -SourceConfigFile.
+
 .EXAMPLE
     .\Test-Configuration.ps1
+    
+    Validates the default app-config.json
 
 .EXAMPLE
     .\Test-Configuration.ps1 -ConfigFile "app-config-target.json"
+    
+    Validates a specific configuration file
+
+.EXAMPLE
+    .\Test-Configuration.ps1 -SourceConfigFile "app-config-source.json" -TargetConfigFile "app-config-target.json"
+    
+    Validates both source and target configurations for cross-tenant migration
 
 .NOTES
     Author: IT Support
-    Date: February 3, 2026
+    Date: February 4, 2026
 #>
 
-[CmdletBinding()]
+[CmdletBinding(DefaultParameterSetName = "Single")]
 param(
-    [Parameter(Mandatory = $false)]
-    [string]$ConfigFile = "app-config.json"
+    [Parameter(Mandatory = $false, ParameterSetName = "Single")]
+    [string]$ConfigFile = "app-config.json",
+    
+    [Parameter(Mandatory = $true, ParameterSetName = "CrossTenant")]
+    [string]$SourceConfigFile,
+    
+    [Parameter(Mandatory = $true, ParameterSetName = "CrossTenant")]
+    [string]$TargetConfigFile
 )
 
 Set-StrictMode -Version Latest
@@ -49,7 +74,8 @@ function Write-ColorMessage {
 
 function Test-ConfigurationFile {
     param(
-        [string]$ConfigFilePath
+        [string]$ConfigFilePath,
+        [string]$Label = ""
     )
     
     $fullPath = if ([System.IO.Path]::IsPathRooted($ConfigFilePath)) {
@@ -60,7 +86,11 @@ function Test-ConfigurationFile {
     
     Write-Host ""
     Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Cyan
-    Write-Host "  Configuration Validation" -ForegroundColor Cyan
+    if ($Label) {
+        Write-Host "  Configuration Validation - $Label" -ForegroundColor Cyan
+    } else {
+        Write-Host "  Configuration Validation" -ForegroundColor Cyan
+    }
     Write-Host "═══════════════════════════════════════════════════════" -ForegroundColor Cyan
     Write-Host ""
     Write-Host "Testing: $ConfigFilePath" -ForegroundColor White
@@ -77,7 +107,7 @@ function Test-ConfigurationFile {
         Write-Host "Quick fix:" -ForegroundColor Cyan
         Write-Host "  Copy-Item app-config.sample.json $ConfigFilePath" -ForegroundColor Gray
         Write-Host ""
-        return $false
+        return @{ Success = $false }
     }
     Write-Host " ✓ PASS" -ForegroundColor Green
     
@@ -93,7 +123,7 @@ function Test-ConfigurationFile {
         Write-Host "ERROR: Invalid JSON format" -ForegroundColor Red
         Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Yellow
         Write-Host ""
-        return $false
+        return @{ Success = $false }
     }
     
     # Test 3: Required fields present
@@ -114,7 +144,7 @@ function Test-ConfigurationFile {
         Write-Host "  - clientId: App registration client ID (GUID)" -ForegroundColor Gray
         Write-Host "  - tenantDomain: Tenant domain (e.g., contoso.onmicrosoft.com)" -ForegroundColor Gray
         Write-Host ""
-        return $false
+        return @{ Success = $false }
     }
     Write-Host " ✓ PASS" -ForegroundColor Green
     
@@ -122,11 +152,11 @@ function Test-ConfigurationFile {
     Write-Host "Test 4: Authentication method configured..." -NoNewline
     $hasAuth = $false
     $authMethod = ""
-    if ($config.certificateThumbprint) { 
+    if ($config.PSObject.Properties['certificateThumbprint'] -and $config.certificateThumbprint) { 
         $hasAuth = $true 
         $authMethod = "Certificate"
     }
-    if ($config.clientSecret) { 
+    if ($config.PSObject.Properties['clientSecret'] -and $config.clientSecret) { 
         $hasAuth = $true 
         if ($authMethod) { $authMethod += " + " }
         $authMethod += "Client Secret"
@@ -140,7 +170,7 @@ function Test-ConfigurationFile {
         Write-Host "  - certificateThumbprint (recommended)" -ForegroundColor Gray
         Write-Host "  - clientSecret (fallback)" -ForegroundColor Gray
         Write-Host ""
-        return $false
+        return @{ Success = $false }
     }
     Write-Host " ✓ PASS ($authMethod)" -ForegroundColor Green
     
@@ -164,7 +194,7 @@ function Test-ConfigurationFile {
             Write-Host ""
             Write-Host "To generate a certificate, see MANUAL-APP-REGISTRATION.md" -ForegroundColor Cyan
             Write-Host ""
-            return $false
+            return @{ Success = $false }
         }
         
         # Check certificate expiration
@@ -175,7 +205,7 @@ function Test-ConfigurationFile {
             Write-Host "ERROR: Certificate has expired" -ForegroundColor Red
             Write-Host "Expired on: $($cert.NotAfter)" -ForegroundColor Yellow
             Write-Host ""
-            return $false
+            return @{ Success = $false }
         }
         elseif ($daysUntilExpiry -lt 30) {
             Write-Host " ⚠ PASS (Expires soon)" -ForegroundColor Yellow
@@ -193,7 +223,7 @@ function Test-ConfigurationFile {
             Write-Host "ERROR: Certificate does not have a private key" -ForegroundColor Red
             Write-Host "This certificate cannot be used for authentication." -ForegroundColor Yellow
             Write-Host ""
-            return $false
+            return @{ Success = $false }
         }
         Write-Host " ✓ PASS" -ForegroundColor Green
     }
@@ -211,7 +241,7 @@ function Test-ConfigurationFile {
         Write-Host "ERROR: Invalid GUID format" -ForegroundColor Red
         Write-Host "tenantId and clientId must be valid GUIDs" -ForegroundColor Yellow
         Write-Host ""
-        return $false
+        return @{ Success = $false }
     }
     
     Write-Host ""
@@ -225,24 +255,105 @@ function Test-ConfigurationFile {
     Write-Host "  Client ID:     $($config.clientId)" -ForegroundColor Gray
     Write-Host "  Auth Method:   $authMethod" -ForegroundColor White
     Write-Host ""
-    Write-Host "This configuration is ready to use with:" -ForegroundColor Green
-    Write-Host "  .\Export-SharePointSiteTemplate.ps1 -ConfigFile '$ConfigFilePath'" -ForegroundColor Gray
-    Write-Host "  .\Import-SharePointSiteTemplate.ps1 -ConfigFile '$ConfigFilePath'" -ForegroundColor Gray
-    Write-Host "  .\Remove-DeletedSharePointSite.ps1 -ConfigFile '$ConfigFilePath'" -ForegroundColor Gray
-    Write-Host ""
     
-    return $true
+    if (-not $Label) {
+        Write-Host "This configuration is ready to use with:" -ForegroundColor Green
+        Write-Host "  .\Export-SharePointSiteTemplate.ps1 -ConfigFile '$ConfigFilePath'" -ForegroundColor Gray
+        Write-Host "  .\Import-SharePointSiteTemplate.ps1 -ConfigFile '$ConfigFilePath'" -ForegroundColor Gray
+        Write-Host "  .\Remove-DeletedSharePointSite.ps1 -ConfigFile '$ConfigFilePath'" -ForegroundColor Gray
+        Write-Host ""
+    }
+    
+    return @{
+        Success = $true
+        TenantDomain = $config.tenantDomain
+        TenantId = $config.tenantId
+        ClientId = $config.clientId
+        AuthMethod = $authMethod
+    }
 }
 
 # Main execution
 try {
-    $result = Test-ConfigurationFile -ConfigFilePath $ConfigFile
-    
-    if (-not $result) {
-        Write-Host "Configuration validation failed." -ForegroundColor Red
-        Write-Host "See CONFIG-README.md and MANUAL-APP-REGISTRATION.md for setup guidance." -ForegroundColor Yellow
+    if ($PSCmdlet.ParameterSetName -eq "CrossTenant") {
+        # Validate both source and target configurations
         Write-Host ""
-        exit 1
+        Write-Host "╔═══════════════════════════════════════════════════════╗" -ForegroundColor Magenta
+        Write-Host "║     Cross-Tenant Migration Configuration Test        ║" -ForegroundColor Magenta
+        Write-Host "╚═══════════════════════════════════════════════════════╝" -ForegroundColor Magenta
+        Write-Host ""
+        
+        $sourceResult = Test-ConfigurationFile -ConfigFilePath $SourceConfigFile -Label "SOURCE TENANT"
+        
+        if (-not $sourceResult.Success) {
+            Write-Host ""
+            Write-Host "❌ Source configuration validation failed." -ForegroundColor Red
+            Write-Host "Fix the source configuration before proceeding." -ForegroundColor Yellow
+            Write-Host ""
+            exit 1
+        }
+        
+        $targetResult = Test-ConfigurationFile -ConfigFilePath $TargetConfigFile -Label "TARGET TENANT"
+        
+        if (-not $targetResult.Success) {
+            Write-Host ""
+            Write-Host "❌ Target configuration validation failed." -ForegroundColor Red
+            Write-Host "Fix the target configuration before proceeding." -ForegroundColor Yellow
+            Write-Host ""
+            exit 1
+        }
+        
+        # Display cross-tenant summary
+        Write-Host ""
+        Write-Host "╔═══════════════════════════════════════════════════════╗" -ForegroundColor Green
+        Write-Host "║   ✓ Both Configurations Valid - Ready for Migration  ║" -ForegroundColor Green
+        Write-Host "╚═══════════════════════════════════════════════════════╝" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "Cross-Tenant Migration Summary:" -ForegroundColor Cyan
+        Write-Host ""
+        Write-Host "  SOURCE TENANT:" -ForegroundColor Yellow
+        Write-Host "    Domain:      $($sourceResult.TenantDomain)" -ForegroundColor White
+        Write-Host "    Tenant ID:   $($sourceResult.TenantId)" -ForegroundColor Gray
+        Write-Host "    Auth:        $($sourceResult.AuthMethod)" -ForegroundColor White
+        Write-Host ""
+        Write-Host "  TARGET TENANT:" -ForegroundColor Yellow
+        Write-Host "    Domain:      $($targetResult.TenantDomain)" -ForegroundColor White
+        Write-Host "    Tenant ID:   $($targetResult.TenantId)" -ForegroundColor Gray
+        Write-Host "    Auth:        $($targetResult.AuthMethod)" -ForegroundColor White
+        Write-Host ""
+        
+        # Warn if same tenant
+        if ($sourceResult.TenantId -eq $targetResult.TenantId) {
+            Write-Host "  ⚠️  WARNING: Source and Target are the SAME tenant!" -ForegroundColor Yellow
+            Write-Host "      This is a same-tenant migration." -ForegroundColor Yellow
+            Write-Host ""
+        }
+        
+        Write-Host "Ready to use with:" -ForegroundColor Green
+        Write-Host "  # 1. Export from source" -ForegroundColor Gray
+        Write-Host "  .\Export-SharePointSiteTemplate.ps1 -ConfigFile '$SourceConfigFile' -IncludeContent" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  # 2. Generate user mapping (for cross-tenant)" -ForegroundColor Gray
+        Write-Host "  .\New-UserMappingTemplate.ps1 -TemplatePath 'template.pnp'" -ForegroundColor Gray
+        Write-Host ""
+        Write-Host "  # 3. Import to target" -ForegroundColor Gray
+        Write-Host "  .\Import-SharePointSiteTemplate.ps1 -ConfigFile '$TargetConfigFile' -TemplatePath 'template.pnp' -UserMappingFile 'user-mapping.csv'" -ForegroundColor Gray
+        Write-Host ""
+        
+    } else {
+        # Single configuration validation
+        $result = Test-ConfigurationFile -ConfigFilePath $ConfigFile
+        
+        if (-not $result.Success) {
+            Write-Host "Configuration validation failed." -ForegroundColor Red
+            Write-Host "See CONFIG-README.md and MANUAL-APP-REGISTRATION.md for setup guidance." -ForegroundColor Yellow
+            Write-Host ""
+            exit 1
+        }
+        
+        Write-Host "💡 TIP: For cross-tenant migrations, use:" -ForegroundColor Cyan
+        Write-Host "  .\Test-Configuration.ps1 -SourceConfigFile 'app-config-source.json' -TargetConfigFile 'app-config-target.json'" -ForegroundColor Gray
+        Write-Host ""
     }
     
     exit 0
