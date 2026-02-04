@@ -65,6 +65,26 @@ These scripts enable you to:
 
 ## Quick Start
 
+### Option A: Interactive Menu (Recommended)
+
+The easiest way to get started is with the interactive menu system:
+
+```powershell
+.\Start-SharePointMigration.ps1
+```
+
+This launches a guided menu that:
+- Helps you choose between same-tenant or cross-tenant migration
+- Shows prerequisites specific to your migration type
+- Validates your configuration files
+- Provides step-by-step workflow guidance with all commands
+
+The menu will guide you through the entire process, from setup to execution.
+
+### Option B: Manual Setup
+
+If you prefer manual execution, follow these steps:
+
 ### Step 1: Set Up App Registration
 
 See [MANUAL-APP-REGISTRATION.md](MANUAL-APP-REGISTRATION.md) for detailed setup instructions.
@@ -589,6 +609,7 @@ The scripts use **certificate-based authentication** with the following priority
 ```
 SharepointTemplateExport/
 ├── Core Scripts
+│   ├── Start-SharePointMigration.ps1         # Interactive menu system (START HERE!)
 │   ├── Export-SharePointSiteTemplate.ps1     # Export site to PnP template (with selective export)
 │   ├── Import-SharePointSiteTemplate.ps1     # Import PnP template to site (with selective import)
 │   ├── New-UserMappingTemplate.ps1           # Generate user mapping CSV for cross-tenant migrations
@@ -606,6 +627,7 @@ SharepointTemplateExport/
 │   └── user-mapping.sample.csv               # User mapping CSV template
 ├── Documentation
 │   ├── README.md                             # This file - main documentation
+│   ├── MENU-QUICK-START.md                   # Interactive menu quick reference (NEW v3.1)
 │   ├── CONFIG-README.md                      # Configuration setup guide
 │   ├── MANUAL-APP-REGISTRATION.md            # Detailed app registration guide
 │   ├── USER-MAPPING-QUICK-REF.md             # Quick reference card (NEW)
@@ -975,6 +997,40 @@ Compare two templates to see differences:
 
 ## Advanced Scenarios
 
+### Interactive Menu System
+
+For a guided migration experience, use the interactive menu:
+
+```powershell
+.\Start-SharePointMigration.ps1
+```
+
+**Features:**
+- 🎯 Choose migration type: Same-tenant or Cross-tenant
+- ✅ Automatic prerequisite checking
+- 📋 Clear step-by-step workflow guidance
+- 🔧 Built-in configuration validation
+- 📚 Quick access to documentation
+- 🎨 Color-coded output for better readability
+
+**What the menu does:**
+1. Helps you choose the right migration approach
+2. Shows specific prerequisites for your scenario:
+   - Azure AD app registration requirements
+   - Certificate setup instructions
+   - Configuration file examples
+3. Validates your configuration files with Test-Configuration.ps1
+4. Provides complete workflow with all necessary commands
+5. Guides you through user mapping (for cross-tenant)
+
+**Main Menu Options:**
+- **Same-Tenant Migration**: Migrate within one Microsoft 365 tenant
+- **Cross-Tenant Migration**: Migrate between different tenants (with user mapping)
+- **View Documentation**: Open README, setup guides, and reference docs
+- **Test Configuration Files**: Validate single or cross-tenant configs
+
+This is the recommended way to start your migration, especially for first-time users or complex cross-tenant scenarios.
+
 ### Cleanup Deleted Sites
 
 After testing migrations, you may need to permanently remove sites from the recycle bin:
@@ -1047,6 +1103,7 @@ Logs include:
 ## Support
 
 For detailed guides and documentation:
+- [MENU-QUICK-START.md](MENU-QUICK-START.md) - Interactive menu quick reference (NEW!)
 - [MANUAL-APP-REGISTRATION.md](MANUAL-APP-REGISTRATION.md) - Complete Azure AD app setup
 - [CONFIG-README.md](CONFIG-README.md) - Configuration file guidance
 - [USER-MAPPING-QUICK-REF.md](USER-MAPPING-QUICK-REF.md) - User mapping quick reference
@@ -1063,6 +1120,14 @@ We welcome contributions! Please see [DEVELOPER.md](DEVELOPER.md) for:
 - Security guidelines
 
 ## Version History
+
+- **v3.1** (February 2026)
+  - **Interactive Menu System**: Guided workflow with Start-SharePointMigration.ps1
+  - Prerequisites validation and checking
+  - Step-by-step workflow guidance for same-tenant and cross-tenant migrations
+  - Built-in configuration testing
+  - Quick access to documentation from menu
+  - Color-coded output for improved user experience
 
 - **v3.0** (February 2026)
   - **Selective Export & Import**: Granular control over what gets migrated
