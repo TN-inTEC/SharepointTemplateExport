@@ -227,29 +227,9 @@ function Show-CrossTenantPrerequisites {
         "   - app-config-target.json (target tenant)"
     )
     
-    Write-Host "Source configuration file (app-config-source.json):" -ForegroundColor Cyan
-    Write-Host @"
-{
-  "tenantId": "SOURCE-TENANT-ID-GUID",
-  "clientId": "SOURCE-APP-CLIENT-ID-GUID",
-  "certificateThumbprint": "CERT-THUMBPRINT",
-  "tenantDomain": "sourcetenant.onmicrosoft.com"
-}
-"@ -ForegroundColor Gray
-    
-    Write-Host "`nTarget configuration file (app-config-target.json):" -ForegroundColor Cyan
-    Write-Host @"
-{
-  "tenantId": "TARGET-TENANT-ID-GUID",
-  "clientId": "TARGET-APP-CLIENT-ID-GUID",
-  "certificateThumbprint": "CERT-THUMBPRINT",
-  "tenantDomain": "targettenant.onmicrosoft.com"
-}
-"@ -ForegroundColor Gray
-    
     Write-Host "`nFor detailed setup instructions:" -ForegroundColor Yellow
     Write-Host "  • See MANUAL-APP-REGISTRATION.md for app registration in BOTH tenants" -ForegroundColor White
-    Write-Host "  • See CONFIG-README.md for configuration file setup" -ForegroundColor White
+    Write-Host "  • See CONFIG-README.md for configuration file setup and examples" -ForegroundColor White
     Write-Host "  • You can use the same certificate in both tenants`n" -ForegroundColor White
     
     # Check current prerequisites
