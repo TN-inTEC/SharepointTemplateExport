@@ -1090,7 +1090,7 @@ try {
             "1" {
                 # Same-Tenant Migration
                 Show-SameTenantPrerequisites
-                $continue = Read-Host "`nContinue to workflow guide? (Y/N)"
+                $continue = Read-Host "`nContinue to Migration options? (Y/N)"
                 if ($continue -eq 'Y' -or $continue -eq 'y') {
                     Show-SameTenantWorkflow
                 }
@@ -1098,7 +1098,7 @@ try {
             "2" {
                 # Cross-Tenant Migration
                 Show-CrossTenantPrerequisites
-                $continue = Read-Host "`nContinue to workflow guide? (Y/N)"
+                $continue = Read-Host "`nContinue to Migration options? (Y/N)"
                 if ($continue -eq 'Y' -or $continue -eq 'y') {
                     Show-CrossTenantWorkflow
                 }
