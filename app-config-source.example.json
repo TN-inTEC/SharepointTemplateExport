@@ -1,0 +1,6 @@
+{
+  "tenantId": "EXAMPLE-TENANT-ID-GUID",
+  "clientId": "EXAMPLE-APP-CLIENT-ID-GUID",
+  "certificateThumbprint": "EXAMPLE-CERTIFICATE-THUMBPRINT",
+  "tenantDomain": "example.onmicrosoft.com"
+}

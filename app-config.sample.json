@@ -1,0 +1,7 @@
+{
+  "tenantId": "YOUR-TENANT-ID-GUID",
+  "clientId": "YOUR-APP-CLIENT-ID-GUID",
+  "certificateThumbprint": "YOUR-CERTIFICATE-THUMBPRINT",
+  "clientSecret": "YOUR-CLIENT-SECRET-OPTIONAL",
+  "tenantDomain": "yourtenant.onmicrosoft.com"
+}

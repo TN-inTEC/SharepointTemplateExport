@@ -1,0 +1,59 @@
+# Sensitive Configuration Files
+app-config.json
+app-config-*.json
+!app-config*.example.json
+!app-config.sample.json
+**/appsettings*.json
+
+# Certificate Files
+*.pfx
+*.cer
+*.pem
+
+# SharePoint Template Files (can be large)
+*.pnp
+
+# Log Files
+*.log
+*.txt
+
+# PowerShell Transcripts
+*_transcript_*.txt
+
+# Reports and Output Directories
+C:/PSReports/
+PSReports/
+
+# Windows System Files
+Thumbs.db
+Desktop.ini
+
+# PowerShell
+*.ps1xml
+
+# Backup Files
+*.bak
+*.backup
+*~
+
+# Temporary Files
+*.tmp
+*.temp
+
+# VS Code
+.vscode/
+*.code-workspace
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDEs
+.idea/
+*.swp
+*.swo
+*~
+
+# Node modules (if using any JS tooling)
+node_modules/

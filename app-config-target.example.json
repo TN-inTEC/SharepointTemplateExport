@@ -1,0 +1,6 @@
+{
+  "tenantId": "TARGET-TENANT-ID-GUID",
+  "clientId": "TARGET-APP-CLIENT-ID-GUID",
+  "certificateThumbprint": "TARGET-CERTIFICATE-THUMBPRINT",
+  "tenantDomain": "targettenant.onmicrosoft.com"
+}
