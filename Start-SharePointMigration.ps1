@@ -261,12 +261,27 @@ function Show-CrossTenantPrerequisites {
 }
 
 function Show-SameTenantWorkflow {
+    param(
+        [string]$TenantDomain = "",
+        [string]$TenantRootUrl = "",
+        [bool]$ConfigIsExample = $false
+    )
+    
     Write-Header "Same-Tenant Migration Workflow"
     
     Write-InfoBox @(
         "This workflow will guide you through migrating a SharePoint site",
         "within the same Microsoft 365 tenant."
     )
+    
+    if ($TenantDomain) {
+        Write-Host "`nTenant: " -ForegroundColor Cyan -NoNewline
+        Write-Host $TenantDomain -ForegroundColor White
+        if ($TenantRootUrl) {
+            Write-Host "Default URL: " -ForegroundColor Gray -NoNewline
+            Write-Host $TenantRootUrl -ForegroundColor White
+        }
+    }
     
     $workflowRunning = $true
     $exportedTemplate = $null
@@ -287,9 +302,9 @@ function Show-SameTenantWorkflow {
                 # Export source site
                 Write-SubHeader "Step 1: Export Source Site"
                 
-                # Parameter collection menu
+                # Parameter collection menu with config-based defaults
                 $exportParams = @{
-                    SourceUrl = ""
+                    SourceUrl = if (-not $ConfigIsExample -and $TenantRootUrl) { $TenantRootUrl } else { "" }
                     IncludeContent = $true
                     PreviewMode = $false
                 }
@@ -540,98 +555,163 @@ function Show-SameTenantWorkflow {
                 }
             }
             "3" {
-                # Import to target
+                # Import to target - menu-based parameter collection
                 Write-SubHeader "Step 3: Import to Target Site"
                 
-                Write-Host "`n⚠️  PREREQUISITE: Target site must already exist!" -ForegroundColor Yellow
-                Write-Host "Create via Admin Center or PowerShell before proceeding.`n" -ForegroundColor Yellow
-                
-                Write-Host "Enter target site URL: " -ForegroundColor Yellow -NoNewline
-                $targetUrl = Read-Host
-                
-                if ([string]::IsNullOrWhiteSpace($targetUrl)) {
-                    Write-Host "Target URL is required. Operation cancelled." -ForegroundColor Red
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
+                # Initialize parameters with config-based defaults
+                $importParams = @{
+                    TargetUrl = if (-not $ConfigIsExample -and $TenantRootUrl) { $TenantRootUrl } else { "" }
+                    TemplatePath = if ($exportedTemplate) { $exportedTemplate } else { "" }
+                    InspectOnly = $false
                 }
                 
-                if ($exportedTemplate) {
-                    Write-Host "`nMost recent template: " -ForegroundColor Cyan
-                    Write-Host $exportedTemplate -ForegroundColor White
-                    Write-Host "`nUse this template? [Y/N] (default: Y): " -ForegroundColor Yellow -NoNewline
-                    $useRecent = Read-Host
+                $importMenuRunning = $true
+                while ($importMenuRunning) {
+                    Write-Host "`n═══ Current Configuration ═══" -ForegroundColor Cyan
+                    Write-Host "  Target Site URL: " -NoNewline -ForegroundColor Gray
+                    if ($importParams.TargetUrl) {
+                        Write-Host $importParams.TargetUrl -ForegroundColor White
+                    } else {
+                        Write-Host "(not set)" -ForegroundColor Yellow
+                    }
+                    Write-Host "  Template Path: " -NoNewline -ForegroundColor Gray
+                    if ($importParams.TemplatePath) {
+                        Write-Host $importParams.TemplatePath -ForegroundColor White
+                    } else {
+                        Write-Host "(not set)" -ForegroundColor Yellow
+                    }
+                    Write-Host "  Mode: " -NoNewline -ForegroundColor Gray
+                    if ($importParams.InspectOnly) {
+                        Write-Host "INSPECT ONLY (validation only, no import)" -ForegroundColor Cyan
+                    } else {
+                        Write-Host "IMPORT (will modify target site)" -ForegroundColor Yellow
+                    }
                     
-                    if ($useRecent -eq 'N' -or $useRecent -eq 'n') {
-                        Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
-                        $templatePath = Read-Host
-                    }
-                    else {
-                        $templatePath = $exportedTemplate
-                    }
-                }
-                else {
-                    Write-Host "Enter template path: " -ForegroundColor Yellow -NoNewline
-                    $templatePath = Read-Host
-                }
-                
-                if ([string]::IsNullOrWhiteSpace($templatePath)) {
-                    Write-Host "Template path is required. Operation cancelled." -ForegroundColor Red
-                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                    continue
-                }
-                
-                Write-Host "`nRun in INSPECT-ONLY mode (validation only, no import)? [Y/N] (default: N): " -ForegroundColor Yellow -NoNewline
-                $inspectOnly = Read-Host
-                $inspectSwitch = if ($inspectOnly -eq 'Y' -or $inspectOnly -eq 'y') { "-InspectOnly" } else { "" }
-                
-                if (-not $inspectSwitch) {
-                    Write-Host "`n⚠️  FINAL CONFIRMATION" -ForegroundColor Yellow
-                    Write-Host "About to import to: $targetUrl" -ForegroundColor White
-                    Write-Host "From template: $templatePath" -ForegroundColor White
-                    Write-Host "`nThis will modify the target site!" -ForegroundColor Yellow
-                    Write-Host "Proceed with import? [Y/N]: " -ForegroundColor Yellow -NoNewline
-                    $confirm = Read-Host
+                    Write-Host "`n⚠️  PREREQUISITE: Target site must already exist!" -ForegroundColor Yellow
                     
-                    if ($confirm -ne 'Y' -and $confirm -ne 'y') {
-                        Write-Host "Import cancelled." -ForegroundColor Cyan
-                        Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                        $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
-                        continue
+                    $importOptions = @(
+                        "Set target site URL"
+                    )
+                    if (-not $ConfigIsExample -and $TenantRootUrl) {
+                        $importOptions += "Reset to default tenant URL: $TenantRootUrl"
                     }
-                }
-                
-                if ($inspectSwitch) {
-                    Write-Host "`nExecuting inspection (no changes will be made)..." -ForegroundColor Cyan
-                }
-                else {
-                    Write-Host "`nExecuting import..." -ForegroundColor Cyan
-                }
-                Write-Host "Command: " -ForegroundColor Gray -NoNewline
-                Write-Host ".\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl `"$targetUrl`" -TemplatePath `"$templatePath`" -ConfigFile `"$ConfigFile`" $inspectSwitch" -ForegroundColor White
-                
-                if (Test-Path ".\Import-SharePointSiteTemplate.ps1") {
-                    try {
-                        if ($inspectSwitch) {
-                            & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $targetUrl -TemplatePath $templatePath -ConfigFile $ConfigFile -InspectOnly
-                            Write-Host "`n✓ Inspection completed (no changes made)" -ForegroundColor Green
+                    $importOptions += "Set template path"
+                    if ($exportedTemplate) {
+                        $importOptions += "Use most recent export: $(Split-Path $exportedTemplate -Leaf)"
+                    }
+                    $importOptions += @(
+                        "Toggle mode (Inspect Only / Import)",
+                        "Execute import",
+                        "Cancel and return to workflow menu"
+                    )
+                    
+                    $importChoice = Show-Menu -Title "Import Options" -Options $importOptions
+                    
+                    # Adjust switch based on dynamic menu
+                    $optionOffset = if (-not $ConfigIsExample -and $TenantRootUrl) { 1 } else { 0 }
+                    $useRecentOffset = if ($exportedTemplate) { 1 } else { 0 }
+                    
+                    switch ($importChoice) {
+                        "1" {
+                            Write-Host "`nEnter target site URL: " -ForegroundColor Yellow -NoNewline
+                            $url = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($url)) {
+                                $importParams.TargetUrl = $url
+                            }
                         }
-                        else {
-                            & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $targetUrl -TemplatePath $templatePath -ConfigFile $ConfigFile
-                            Write-Host "`n✓ Import completed!" -ForegroundColor Green
+                        { $_ -eq "2" -and (-not $ConfigIsExample -and $TenantRootUrl) } {
+                            $importParams.TargetUrl = $TenantRootUrl
+                            Write-Host "`n✓ Reset to default tenant URL" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        { $_ -eq (2 + $optionOffset) } {
+                            Write-Host "`nEnter template path: " -ForegroundColor Yellow -NoNewline
+                            $path = Read-Host
+                            if (-not [string]::IsNullOrWhiteSpace($path)) {
+                                $importParams.TemplatePath = $path
+                            }
+                        }
+                        { $_ -eq (3 + $optionOffset) -and $exportedTemplate } {
+                            $importParams.TemplatePath = $exportedTemplate
+                            Write-Host "`n✓ Using most recent export" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        { $_ -eq (3 + $optionOffset + $useRecentOffset) } {
+                            $importParams.InspectOnly = -not $importParams.InspectOnly
+                            Write-Host "`n✓ Mode toggled" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        { $_ -eq (4 + $optionOffset + $useRecentOffset) } {
+                            # Execute
+                            if ([string]::IsNullOrWhiteSpace($importParams.TargetUrl)) {
+                                Write-Host "`n✗ Target URL is required" -ForegroundColor Red
+                                Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                continue
+                            }
+                            if ([string]::IsNullOrWhiteSpace($importParams.TemplatePath)) {
+                                Write-Host "`n✗ Template path is required" -ForegroundColor Red
+                                Write-Host "Press any key to continue..." -ForegroundColor Gray
+                                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                continue
+                            }
+                            
+                            if (-not $importParams.InspectOnly) {
+                                Write-Host "`n⚠️  FINAL CONFIRMATION" -ForegroundColor Yellow
+                                Write-Host "About to import to: $($importParams.TargetUrl)" -ForegroundColor White
+                                Write-Host "From template: $($importParams.TemplatePath)" -ForegroundColor White
+                                Write-Host "`nThis will modify the target site!" -ForegroundColor Yellow
+                                Write-Host "Proceed with import? [Y/N]: " -ForegroundColor Yellow -NoNewline
+                                $confirm = Read-Host
+                                
+                                if ($confirm -ne 'Y' -and $confirm -ne 'y') {
+                                    Write-Host "Import cancelled." -ForegroundColor Cyan
+                                    Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                                    $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                                    continue
+                                }
+                            }
+                            
+                            if ($importParams.InspectOnly) {
+                                Write-Host "`nExecuting inspection (no changes will be made)..." -ForegroundColor Cyan
+                            }
+                            else {
+                                Write-Host "`nExecuting import..." -ForegroundColor Cyan
+                            }
+                            
+                            $inspectSwitch = if ($importParams.InspectOnly) { "-InspectOnly" } else { "" }
+                            Write-Host "Command: " -ForegroundColor Gray -NoNewline
+                            Write-Host ".\Import-SharePointSiteTemplate.ps1 -TargetSiteUrl `"$($importParams.TargetUrl)`" -TemplatePath `"$($importParams.TemplatePath)`" -ConfigFile `"$ConfigFile`" $inspectSwitch" -ForegroundColor White
+                            
+                            if (Test-Path ".\Import-SharePointSiteTemplate.ps1") {
+                                try {
+                                    if ($importParams.InspectOnly) {
+                                        & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $importParams.TargetUrl -TemplatePath $importParams.TemplatePath -ConfigFile $ConfigFile -InspectOnly
+                                        Write-Host "`n✓ Inspection completed (no changes made)" -ForegroundColor Green
+                                    }
+                                    else {
+                                        & ".\Import-SharePointSiteTemplate.ps1" -TargetSiteUrl $importParams.TargetUrl -TemplatePath $importParams.TemplatePath -ConfigFile $ConfigFile
+                                        Write-Host "`n✓ Import completed!" -ForegroundColor Green
+                                    }
+                                }
+                                catch {
+                                    Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
+                                }
+                            }
+                            else {
+                                Write-Host "`nERROR: Import-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
+                            }
+                            
+                            Write-Host "`nPress any key to continue..." -ForegroundColor Gray
+                            $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
+                            $importMenuRunning = $false
+                        }
+                        { $_ -eq (5 + $optionOffset + $useRecentOffset) } {
+                            # Cancel and return
+                            $importMenuRunning = $false
                         }
                     }
-                    catch {
-                        Write-Host "`nERROR: $($_.Exception.Message)" -ForegroundColor Red
-                    }
                 }
-                else {
-                    Write-Host "`nERROR: Import-SharePointSiteTemplate.ps1 not found" -ForegroundColor Red
-                }
-                
-                Write-Host "`nPress any key to continue..." -ForegroundColor Gray
-                $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
             }
             "4" {
                 # View reference commands
@@ -686,16 +766,40 @@ function Show-CrossTenantWorkflow {
         "from one Microsoft 365 tenant to another tenant."
     )
     
+    # Helper function to detect if config contains example/placeholder values
+    function Test-IsExampleConfig {
+        param($tenantDomain)
+        return ($tenantDomain -match "example\.onmicrosoft\.com|targettenant\.onmicrosoft\.com|yourtenant\.onmicrosoft\.com" -or 
+                [string]::IsNullOrWhiteSpace($tenantDomain))
+    }
+    
+    # Helper function to construct SharePoint root URL from tenant domain
+    function Get-SharePointRootUrl {
+        param($tenantDomain)
+        if ([string]::IsNullOrWhiteSpace($tenantDomain)) { return "" }
+        # Extract tenant name (e.g., "slm.co.uk" -> "slm")
+        $tenantName = $tenantDomain -replace '\.onmicrosoft\.com$|\..+$', ''
+        return "https://$tenantName.sharepoint.com"
+    }
+    
     # Load config files to get tenant domains
     $sourceConfig = $null
     $targetConfig = $null
     $sourceDomain = ""
     $targetDomain = ""
+    $sourceRootUrl = ""
+    $targetRootUrl = ""
+    $sourceConfigIsExample = $false
+    $targetConfigIsExample = $false
     
     if (Test-Path $SourceConfigFile) {
         try {
             $sourceConfig = Get-Content $SourceConfigFile -Raw | ConvertFrom-Json
             $sourceDomain = $sourceConfig.tenantDomain
+            $sourceConfigIsExample = Test-IsExampleConfig $sourceDomain
+            if (-not $sourceConfigIsExample) {
+                $sourceRootUrl = Get-SharePointRootUrl $sourceDomain
+            }
         }
         catch {
             Write-Host "Warning: Could not read source config file" -ForegroundColor Yellow
@@ -706,6 +810,10 @@ function Show-CrossTenantWorkflow {
         try {
             $targetConfig = Get-Content $TargetConfigFile -Raw | ConvertFrom-Json
             $targetDomain = $targetConfig.tenantDomain
+            $targetConfigIsExample = Test-IsExampleConfig $targetDomain
+            if (-not $targetConfigIsExample) {
+                $targetRootUrl = Get-SharePointRootUrl $targetDomain
+            }
         }
         catch {
             Write-Host "Warning: Could not read target config file" -ForegroundColor Yellow
@@ -737,11 +845,15 @@ function Show-CrossTenantWorkflow {
                 if ($sourceDomain) {
                     Write-Host "`nSource tenant: " -ForegroundColor Cyan -NoNewline
                     Write-Host $sourceDomain -ForegroundColor White
+                    if ($sourceRootUrl) {
+                        Write-Host "Default URL: " -ForegroundColor Gray -NoNewline
+                        Write-Host $sourceRootUrl -ForegroundColor White
+                    }
                 }
                 
-                # Initialize parameters
+                # Initialize parameters with config-based defaults
                 $exportParams = @{
-                    SourceUrl = ""
+                    SourceUrl = if (-not $sourceConfigIsExample -and $sourceRootUrl) { $sourceRootUrl } else { "" }
                     IncludeContent = $true
                     PreviewMode = $false
                 }
@@ -760,13 +872,23 @@ function Show-CrossTenantWorkflow {
                     Write-Host "  Preview Mode: " -NoNewline -ForegroundColor Gray
                     Write-Host $(if ($exportParams.PreviewMode) { "Yes (no files created)" } else { "No" }) -ForegroundColor White
                     
-                    $exportChoice = Show-Menu -Title "Export Options" -Options @(
-                        "Set source site URL",
+                    $exportOptions = @(
+                        "Set source site URL"
+                    )
+                    if (-not $sourceConfigIsExample -and $sourceRootUrl) {
+                        $exportOptions += "Reset to default tenant URL: $sourceRootUrl"
+                    }
+                    $exportOptions += @(
                         "Toggle include content (currently: $(if ($exportParams.IncludeContent) { 'Yes' } else { 'No' }))",
                         "Toggle preview mode (currently: $(if ($exportParams.PreviewMode) { 'Yes' } else { 'No' }))",
                         "Execute export",
                         "Cancel and return to workflow menu"
                     )
+                    
+                    $exportChoice = Show-Menu -Title "Export Options" -Options $exportOptions
+                    
+                    # Adjust switch based on dynamic menu
+                    $optionOffset = if (-not $sourceConfigIsExample -and $sourceRootUrl) { 1 } else { 0 }
                     
                     switch ($exportChoice) {
                         "1" {
@@ -776,17 +898,22 @@ function Show-CrossTenantWorkflow {
                                 $exportParams.SourceUrl = $url
                             }
                         }
-                        "2" {
+                        { $_ -eq "2" -and (-not $sourceConfigIsExample -and $sourceRootUrl) } {
+                            $exportParams.SourceUrl = $sourceRootUrl
+                            Write-Host "`n✓ Reset to default tenant URL" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        { $_ -eq (2 + $optionOffset) } {
                             $exportParams.IncludeContent = -not $exportParams.IncludeContent
                             Write-Host "`n✓ Include content toggled to: $(if ($exportParams.IncludeContent) { 'Yes' } else { 'No' })" -ForegroundColor Green
                             Start-Sleep -Milliseconds 500
                         }
-                        "3" {
+                        { $_ -eq (3 + $optionOffset) } {
                             $exportParams.PreviewMode = -not $exportParams.PreviewMode
                             Write-Host "`n✓ Preview mode toggled to: $(if ($exportParams.PreviewMode) { 'Yes' } else { 'No' })" -ForegroundColor Green
                             Start-Sleep -Milliseconds 500
                         }
-                        "4" {
+                        { $_ -eq (4 + $optionOffset) } {
                             # Execute
                             if ([string]::IsNullOrWhiteSpace($exportParams.SourceUrl)) {
                                 Write-Host "`n✗ Source URL is required" -ForegroundColor Red
@@ -846,7 +973,7 @@ function Show-CrossTenantWorkflow {
                             $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
                             $exportMenuRunning = $false
                         }
-                        "5" {
+                        { $_ -eq (5 + $optionOffset) } {
                             # Cancel and return
                             $exportMenuRunning = $false
                         }
@@ -1041,11 +1168,15 @@ function Show-CrossTenantWorkflow {
                 if ($targetDomain) {
                     Write-Host "`nTarget tenant: " -ForegroundColor Cyan -NoNewline
                     Write-Host $targetDomain -ForegroundColor White
+                    if ($targetRootUrl) {
+                        Write-Host "Default URL: " -ForegroundColor Gray -NoNewline
+                        Write-Host $targetRootUrl -ForegroundColor White
+                    }
                 }
                 
-                # Initialize parameters
+                # Initialize parameters with config-based defaults
                 $validateParams = @{
-                    TargetUrl = ""
+                    TargetUrl = if (-not $targetConfigIsExample -and $targetRootUrl) { $targetRootUrl } else { "" }
                     TemplatePath = if ($exportedTemplate) { $exportedTemplate } else { "" }
                     MappingFile = $userMappingFile
                 }
@@ -1075,9 +1206,12 @@ function Show-CrossTenantWorkflow {
                     }
                     
                     $validateOptions = @(
-                        "Set target site URL",
-                        "Set template path"
+                        "Set target site URL"
                     )
+                    if (-not $targetConfigIsExample -and $targetRootUrl) {
+                        $validateOptions += "Reset to default tenant URL: $targetRootUrl"
+                    }
+                    $validateOptions += "Set template path"
                     if ($exportedTemplate) {
                         $validateOptions += "Use most recent export: $(Split-Path $exportedTemplate -Leaf)"
                     }
@@ -1089,6 +1223,10 @@ function Show-CrossTenantWorkflow {
                     
                     $validateChoice = Show-Menu -Title "User Validation Options" -Options $validateOptions
                     
+                    # Adjust switch based on dynamic menu
+                    $optionOffset = if (-not $targetConfigIsExample -and $targetRootUrl) { 1 } else { 0 }
+                    $useRecentOffset = if ($exportedTemplate) { 1 } else { 0 }
+                    
                     switch ($validateChoice) {
                         "1" {
                             Write-Host "`nEnter target site URL: " -ForegroundColor Yellow -NoNewline
@@ -1097,26 +1235,31 @@ function Show-CrossTenantWorkflow {
                                 $validateParams.TargetUrl = $url
                             }
                         }
-                        "2" {
+                        { $_ -eq "2" -and (-not $targetConfigIsExample -and $targetRootUrl) } {
+                            $validateParams.TargetUrl = $targetRootUrl
+                            Write-Host "`n✓ Reset to default tenant URL" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        { $_ -eq (2 + $optionOffset) } {
                             Write-Host "`nEnter template path: " -ForegroundColor Yellow -NoNewline
                             $path = Read-Host
                             if (-not [string]::IsNullOrWhiteSpace($path)) {
                                 $validateParams.TemplatePath = $path
                             }
                         }
-                        { $_ -eq "3" -and $exportedTemplate } {
+                        { $_ -eq (3 + $optionOffset) -and $exportedTemplate } {
                             $validateParams.TemplatePath = $exportedTemplate
                             Write-Host "`n✓ Using most recent export" -ForegroundColor Green
                             Start-Sleep -Milliseconds 500
                         }
-                        { ($_ -eq "3" -and -not $exportedTemplate) -or ($_ -eq "4" -and $exportedTemplate) } {
+                        { $_ -eq (3 + $optionOffset + $useRecentOffset) } {
                             Write-Host "`nMapping file path (press Enter for default: $userMappingFile): " -ForegroundColor Yellow -NoNewline
                             $path = Read-Host
                             if (-not [string]::IsNullOrWhiteSpace($path)) {
                                 $validateParams.MappingFile = $path
                             }
                         }
-                        { ($_ -eq "4" -and -not $exportedTemplate) -or ($_ -eq "5" -and $exportedTemplate) } {
+                        { $_ -eq (4 + $optionOffset + $useRecentOffset) } {
                             # Execute validation
                             if ([string]::IsNullOrWhiteSpace($validateParams.TargetUrl)) {
                                 Write-Host "`n✗ Target URL is required" -ForegroundColor Red
@@ -1160,7 +1303,7 @@ function Show-CrossTenantWorkflow {
                             $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
                             $validateMenuRunning = $false
                         }
-                        { ($_ -eq "5" -and -not $exportedTemplate) -or ($_ -eq "6" -and $exportedTemplate) } {
+                        { $_ -eq (5 + $optionOffset + $useRecentOffset) } {
                             # Cancel and return
                             $validateMenuRunning = $false
                         }
@@ -1178,11 +1321,15 @@ function Show-CrossTenantWorkflow {
                 if ($targetDomain) {
                     Write-Host "Target tenant: " -ForegroundColor Cyan -NoNewline
                     Write-Host $targetDomain -ForegroundColor White
+                    if ($targetRootUrl) {
+                        Write-Host "Default URL: " -ForegroundColor Gray -NoNewline
+                        Write-Host $targetRootUrl -ForegroundColor White
+                    }
                 }
                 
-                # Initialize parameters
+                # Initialize parameters with config-based defaults
                 $crossTenantImportParams = @{
-                    TargetUrl = ""
+                    TargetUrl = if (-not $targetConfigIsExample -and $targetRootUrl) { $targetRootUrl } else { "" }
                     TemplatePath = if ($exportedTemplate) { $exportedTemplate } else { "" }
                     MappingFile = $userMappingFile
                 }
@@ -1212,9 +1359,12 @@ function Show-CrossTenantWorkflow {
                     }
                     
                     $crossTenantImportOptions = @(
-                        "Set target site URL",
-                        "Set template path"
+                        "Set target site URL"
                     )
+                    if (-not $targetConfigIsExample -and $targetRootUrl) {
+                        $crossTenantImportOptions += "Reset to default tenant URL: $targetRootUrl"
+                    }
+                    $crossTenantImportOptions += "Set template path"
                     if ($exportedTemplate) {
                         $crossTenantImportOptions += "Use most recent export: $(Split-Path $exportedTemplate -Leaf)"
                     }
@@ -1226,6 +1376,10 @@ function Show-CrossTenantWorkflow {
                     
                     $crossTenantImportChoice = Show-Menu -Title "Cross-Tenant Import Options" -Options $crossTenantImportOptions
                     
+                    # Adjust switch based on dynamic menu
+                    $optionOffset = if (-not $targetConfigIsExample -and $targetRootUrl) { 1 } else { 0 }
+                    $useRecentOffset = if ($exportedTemplate) { 1 } else { 0 }
+                    
                     switch ($crossTenantImportChoice) {
                         "1" {
                             Write-Host "`nEnter target site URL: " -ForegroundColor Yellow -NoNewline
@@ -1234,26 +1388,31 @@ function Show-CrossTenantWorkflow {
                                 $crossTenantImportParams.TargetUrl = $url
                             }
                         }
-                        "2" {
+                        { $_ -eq "2" -and (-not $targetConfigIsExample -and $targetRootUrl) } {
+                            $crossTenantImportParams.TargetUrl = $targetRootUrl
+                            Write-Host "`n✓ Reset to default tenant URL" -ForegroundColor Green
+                            Start-Sleep -Milliseconds 500
+                        }
+                        { $_ -eq (2 + $optionOffset) } {
                             Write-Host "`nEnter template path: " -ForegroundColor Yellow -NoNewline
                             $path = Read-Host
                             if (-not [string]::IsNullOrWhiteSpace($path)) {
                                 $crossTenantImportParams.TemplatePath = $path
                             }
                         }
-                        { $_ -eq "3" -and $exportedTemplate } {
+                        { $_ -eq (3 + $optionOffset) -and $exportedTemplate } {
                             $crossTenantImportParams.TemplatePath = $exportedTemplate
                             Write-Host "`n✓ Using most recent export" -ForegroundColor Green
                             Start-Sleep -Milliseconds 500
                         }
-                        { ($_ -eq "3" -and -not $exportedTemplate) -or ($_ -eq "4" -and $exportedTemplate) } {
+                        { $_ -eq (3 + $optionOffset + $useRecentOffset) } {
                             Write-Host "`nMapping file path (press Enter for default: $userMappingFile): " -ForegroundColor Yellow -NoNewline
                             $path = Read-Host
                             if (-not [string]::IsNullOrWhiteSpace($path)) {
                                 $crossTenantImportParams.MappingFile = $path
                             }
                         }
-                        { ($_ -eq "4" -and -not $exportedTemplate) -or ($_ -eq "5" -and $exportedTemplate) } {
+                        { $_ -eq (4 + $optionOffset + $useRecentOffset) } {
                             # Execute import with full validation and confirmation
                             if ([string]::IsNullOrWhiteSpace($crossTenantImportParams.TargetUrl)) {
                                 Write-Host "`n✗ Target URL is required" -ForegroundColor Red
@@ -1312,7 +1471,7 @@ function Show-CrossTenantWorkflow {
                             $null = $Host.UI.RawUI.ReadKey("NoEcho,IncludeKeyDown")
                             $crossTenantImportMenuRunning = $false
                         }
-                        { ($_ -eq "5" -and -not $exportedTemplate) -or ($_ -eq "6" -and $exportedTemplate) } {
+                        { $_ -eq (5 + $optionOffset + $useRecentOffset) } {
                             # Cancel and return
                             $crossTenantImportMenuRunning = $false
                         }
@@ -1525,6 +1684,29 @@ try {
         $TargetConfigFile = "app-config-target.json"
     }
     
+    # Load same-tenant config for tenant URL detection
+    $sameTenantDomain = ""
+    $sameTenantRootUrl = ""
+    $sameTenantConfigIsExample = $false
+    
+    if (Test-Path $ConfigFile) {
+        try {
+            $sameTenantConfig = Get-Content $ConfigFile -Raw | ConvertFrom-Json
+            $sameTenantDomain = $sameTenantConfig.tenantDomain
+            # Check if it's an example config
+            $sameTenantConfigIsExample = ($sameTenantDomain -match "example\.onmicrosoft\.com|yourtenant\.onmicrosoft\.com" -or 
+                                         [string]::IsNullOrWhiteSpace($sameTenantDomain))
+            # Generate root URL if not example
+            if (-not $sameTenantConfigIsExample) {
+                $tenantName = $sameTenantDomain -replace '\.onmicrosoft\.com$|\..+$', ''
+                $sameTenantRootUrl = "https://$tenantName.sharepoint.com"
+            }
+        }
+        catch {
+            Write-Host "Warning: Could not read same-tenant config file $ConfigFile" -ForegroundColor Yellow
+        }
+    }
+    
     # Main loop
     $running = $true
     while ($running) {
@@ -1536,7 +1718,7 @@ try {
                 Show-SameTenantPrerequisites
                 $continue = Read-Host "`nContinue to Migration options? (Y/N)"
                 if ($continue -eq 'Y' -or $continue -eq 'y') {
-                    Show-SameTenantWorkflow
+                    Show-SameTenantWorkflow -TenantDomain $sameTenantDomain -TenantRootUrl $sameTenantRootUrl -ConfigIsExample $sameTenantConfigIsExample
                 }
             }
             "2" {
